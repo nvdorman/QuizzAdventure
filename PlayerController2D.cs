@@ -7,7 +7,7 @@ public class PlayerController2D : MonoBehaviour
     public float jumpForce = 5f;
 
     [Header("Tags & Layers")]
-    public string groundTag = "Ground"; // Pastikan tilemap atau ground diberi tag ini
+    public string groundTag = "Ground";
 
     private Rigidbody2D rb;
     private Animator animator;
@@ -15,6 +15,7 @@ public class PlayerController2D : MonoBehaviour
 
     private bool isGrounded;
     private float movementInput;
+    private float originalMoveSpeed;
 
     // Animation States
     private readonly int idleHash = Animator.StringToHash("Idle");
@@ -27,6 +28,8 @@ public class PlayerController2D : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
         spriteRenderer = GetComponent<SpriteRenderer>();
+        
+        originalMoveSpeed = moveSpeed;
     }
 
     void Update()
@@ -54,10 +57,9 @@ public class PlayerController2D : MonoBehaviour
     {
         rb.velocity = new Vector2(movementInput * moveSpeed, rb.velocity.y);
 
-        // Flip karakter berdasarkan arah gerak
         if (movementInput != 0)
         {
-            spriteRenderer.flipX = movementInput < 0; // true jika ke kiri
+            spriteRenderer.flipX = movementInput < 0;
         }
     }
 
@@ -85,6 +87,11 @@ public class PlayerController2D : MonoBehaviour
         }
     }
 
+    public void SetSlowMotion(float slowFactor)
+    {
+        moveSpeed = originalMoveSpeed * slowFactor;
+    }
+
     void UpdateAnimation()
     {
         if (!isGrounded)
@@ -93,7 +100,7 @@ public class PlayerController2D : MonoBehaviour
         }
         else if (movementInput != 0)
         {
-            float walkSpeedMultiplier = 7.5f; // Naikkan angka ini untuk mempercepat animasi jalan
+            float walkSpeedMultiplier = 7.5f;
             float walkAnimationTime = Mathf.PingPong(Time.time * walkSpeedMultiplier, 1);
 
             if (walkAnimationTime < 0.5f)

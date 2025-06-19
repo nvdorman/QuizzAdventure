@@ -6,22 +6,32 @@ public class GameOverTrigger : MonoBehaviour
 {
     [Header("Game Over Settings")]
     public Canvas gameOverCanvas;
+    public GameOverManager gameOverManager; // Reference ke GameOverManager
     public string playerTag = "Player";
     public bool pauseGameOnGameOver = true;
     
+    [Header("Dangerous Tags")]
+    public string[] dangerousTags = {"Water", "Lava", "Spike", "Poison"};
+    
     [Header("Delay Settings")]
-    public float gameOverDelay = 1.0f;
-    public bool disablePlayerImmediately = true;
+    public float gameOverDelay = 2.0f;
+    public bool disablePlayerImmediately = false;
     public bool showCountdown = true;
     
     [Header("Visual Effects")]
-    public GameObject warningEffect; // Optional warning effect
+    public GameObject warningEffect;
     public Color playerFlashColor = Color.red;
-    public float flashSpeed = 5f;
+    public float flashSpeed = 8f;
+    
+    [Header("Enhanced Visual Effects")]
+    public Color[] flashColors = {Color.red, Color.yellow, Color.white};
+    public float fadeOutDuration = 1.0f;
+    public AudioClip deathSound;
     
     private bool gameOverTriggered = false;
     private SpriteRenderer playerRenderer;
     private Color originalPlayerColor;
+    private AudioSource audioSource;
     
     private void Start()
     {
@@ -30,10 +40,17 @@ public class GameOverTrigger : MonoBehaviour
             gameOverCanvas.gameObject.SetActive(false);
         }
         
-        TilemapCollider2D tilemapCollider = GetComponent<TilemapCollider2D>();
-        if (tilemapCollider != null)
+        // Auto-find GameOverManager jika tidak diassign
+        if (gameOverManager == null && gameOverCanvas != null)
         {
-            tilemapCollider.isTrigger = true;
+            gameOverManager = gameOverCanvas.GetComponent<GameOverManager>();
+        }
+        
+        // Setup audio source
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null && deathSound != null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
         }
     }
     
@@ -41,39 +58,62 @@ public class GameOverTrigger : MonoBehaviour
     {
         if (other.CompareTag(playerTag) && !gameOverTriggered)
         {
-            gameOverTriggered = true;
-            
-            // Get player renderer untuk visual effect
-            playerRenderer = other.GetComponent<SpriteRenderer>();
-            if (playerRenderer != null)
+            if (HasDangerousTag(gameObject))
             {
-                originalPlayerColor = playerRenderer.color;
+                gameOverTriggered = true;
+                
+                playerRenderer = other.GetComponent<SpriteRenderer>();
+                if (playerRenderer != null)
+                {
+                    originalPlayerColor = playerRenderer.color;
+                }
+                
+                if (audioSource != null && deathSound != null)
+                {
+                    audioSource.PlayOneShot(deathSound);
+                }
+                
+                StartCoroutine(TriggerGameOverWithDelay(other.gameObject));
             }
-            
-            StartCoroutine(TriggerGameOverWithDelay(other.gameObject));
         }
+    }
+    
+    private bool HasDangerousTag(GameObject obj)
+    {
+        foreach (string tag in dangerousTags)
+        {
+            if (obj.CompareTag(tag))
+            {
+                return true;
+            }
+        }
+        return false;
     }
     
     private IEnumerator TriggerGameOverWithDelay(GameObject player)
     {
-        Debug.Log("Player hit! Game Over in " + gameOverDelay + " seconds...");
+        Debug.Log("Player hit dangerous area! Game Over in " + gameOverDelay + " seconds...");
         
-        // Aktifkan warning effect jika ada
         if (warningEffect != null)
         {
             warningEffect.SetActive(true);
         }
         
-        // Disable player immediately jika diinginkan
         if (disablePlayerImmediately)
         {
             DisablePlayer(player);
         }
+        else
+        {
+            PlayerController2D playerController = player.GetComponent<PlayerController2D>();
+            if (playerController != null)
+            {
+                playerController.SetSlowMotion(0.3f);
+            }
+        }
         
-        // Start visual effects (player flashing)
-        StartCoroutine(FlashPlayer());
+        StartCoroutine(EnhancedFlashPlayer());
         
-        // Countdown dengan debug log
         if (showCountdown)
         {
             for (int i = Mathf.FloorToInt(gameOverDelay); i > 0; i--)
@@ -87,29 +127,28 @@ public class GameOverTrigger : MonoBehaviour
             yield return new WaitForSeconds(gameOverDelay);
         }
         
-        // Stop flashing
-        StopAllCoroutines();
+        StopCoroutine(EnhancedFlashPlayer());
+        StartCoroutine(FadeOutPlayer());
         
-        // Reset player color
-        if (playerRenderer != null)
-        {
-            playerRenderer.color = originalPlayerColor;
-        }
+        yield return new WaitForSeconds(fadeOutDuration);
         
-        // Trigger game over
         TriggerGameOver(player);
     }
     
-    private IEnumerator FlashPlayer()
+    private IEnumerator EnhancedFlashPlayer()
     {
+        int colorIndex = 0;
         while (true)
         {
             if (playerRenderer != null)
             {
-                playerRenderer.color = playerFlashColor;
+                playerRenderer.color = flashColors[colorIndex % flashColors.Length];
                 yield return new WaitForSeconds(1f / flashSpeed);
+                
                 playerRenderer.color = originalPlayerColor;
                 yield return new WaitForSeconds(1f / flashSpeed);
+                
+                colorIndex++;
             }
             else
             {
@@ -118,33 +157,41 @@ public class GameOverTrigger : MonoBehaviour
         }
     }
     
+    private IEnumerator FadeOutPlayer()
+    {
+        if (playerRenderer != null)
+        {
+            float elapsed = 0f;
+            Color startColor = playerRenderer.color;
+            
+            while (elapsed < fadeOutDuration)
+            {
+                elapsed += Time.deltaTime;
+                float alpha = Mathf.Lerp(1f, 0f, elapsed / fadeOutDuration);
+                playerRenderer.color = new Color(startColor.r, startColor.g, startColor.b, alpha);
+                yield return null;
+            }
+        }
+    }
+    
     private void TriggerGameOver(GameObject player)
     {
-        // Matikan warning effect
         if (warningEffect != null)
         {
             warningEffect.SetActive(false);
         }
         
-        // Aktifkan canvas game over
+        // Disable player
+        DisablePlayer(player);
+        
+        // Show game over UI
         if (gameOverCanvas != null)
         {
             gameOverCanvas.gameObject.SetActive(true);
         }
         
-        // Pause game jika diinginkan
-        if (pauseGameOnGameOver)
-        {
-            Time.timeScale = 0f;
-        }
-        
-        // Disable player movement jika belum di-disable
-        if (!disablePlayerImmediately)
-        {
-            DisablePlayer(player);
-        }
-        
-        Debug.Log("Game Over! Player touched dangerous tilemap!");
+        // Game akan di-pause oleh GameOverManager
+        Debug.Log("Game Over! Player touched dangerous area!");
     }
     
     private void DisablePlayer(GameObject player)
@@ -180,5 +227,7 @@ public class GameOverTrigger : MonoBehaviour
         {
             warningEffect.SetActive(false);
         }
+        
+        Time.timeScale = 1f;
     }
 }
