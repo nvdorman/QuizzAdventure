@@ -181,16 +181,19 @@ public class GameOverTrigger : MonoBehaviour
             warningEffect.SetActive(false);
         }
         
-        // Disable player
         DisablePlayer(player);
         
-        // Show game over UI
         if (gameOverCanvas != null)
         {
             gameOverCanvas.gameObject.SetActive(true);
+            
+            // Panggil ActivateGameOver() untuk pause game
+            if (gameOverManager != null)
+            {
+                gameOverManager.ActivateGameOver();
+            }
         }
         
-        // Game akan di-pause oleh GameOverManager
         Debug.Log("Game Over! Player touched dangerous area!");
     }
     

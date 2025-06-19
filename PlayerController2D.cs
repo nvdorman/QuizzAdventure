@@ -6,36 +6,85 @@ public class PlayerController2D : MonoBehaviour
     public float moveSpeed = 5f;
     public float jumpForce = 5f;
 
+    [Header("Shooting Settings")]
+    public GameObject bulletPrefab;
+    public Transform firePoint;
+    public float bulletSpeed = 15f;
+    public int bulletDamage = 1; // Changed to int
+    public float fireRate = 0.3f;
+    public int maxAmmo = 30;
+    public float reloadTime = 2f;
+    
+    [Header("Shooting Effects")]
+    public GameObject muzzleFlash;
+    public AudioClip shootSound;
+    public AudioClip reloadSound;
+    public AudioClip emptyClipSound;
+    
     [Header("Tags & Layers")]
     public string groundTag = "Ground";
 
     private Rigidbody2D rb;
     private Animator animator;
     private SpriteRenderer spriteRenderer;
+    private AudioSource audioSource;
+    private Camera playerCamera;
 
     private bool isGrounded;
     private float movementInput;
     private float originalMoveSpeed;
+    
+    // Shooting variables
+    private float nextFireTime = 0f;
+    private int currentAmmo;
+    private bool isReloading = false;
+    private Vector2 mousePosition;
+    private Vector2 shootDirection;
 
     // Animation States
     private readonly int idleHash = Animator.StringToHash("Idle");
     private readonly int walkAHash = Animator.StringToHash("WalkA");
     private readonly int walkBHash = Animator.StringToHash("WalkB");
     private readonly int jumpHash = Animator.StringToHash("Jump");
+    private readonly int shootHash = Animator.StringToHash("Shoot");
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
         spriteRenderer = GetComponent<SpriteRenderer>();
+        audioSource = GetComponent<AudioSource>();
+        
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+        }
+        
+        playerCamera = Camera.main;
+        if (playerCamera == null)
+        {
+            playerCamera = FindObjectOfType<Camera>();
+        }
         
         originalMoveSpeed = moveSpeed;
+        currentAmmo = maxAmmo;
+        
+        // Setup fire point if not assigned
+        if (firePoint == null)
+        {
+            GameObject firePointObj = new GameObject("FirePoint");
+            firePointObj.transform.SetParent(transform);
+            firePointObj.transform.localPosition = new Vector3(0.5f, 0, 0);
+            firePoint = firePointObj.transform;
+        }
     }
 
     void Update()
     {
         HandleInput();
+        HandleShooting();
         UpdateAnimation();
+        UpdateAiming();
     }
 
     void FixedUpdate()
@@ -51,16 +100,153 @@ public class PlayerController2D : MonoBehaviour
         {
             rb.velocity = new Vector2(rb.velocity.x, jumpForce);
         }
+        
+        // Reload input
+        if (Input.GetKeyDown(KeyCode.R) && !isReloading)
+        {
+            StartReload();
+        }
+    }
+    
+    void HandleShooting()
+    {
+        if (isReloading) return;
+        
+        // Shooting with left mouse button
+        if (Input.GetMouseButton(0) && Time.time >= nextFireTime)
+        {
+            if (currentAmmo > 0)
+            {
+                Shoot();
+                nextFireTime = Time.time + fireRate;
+            }
+            else
+            {
+                // Play empty clip sound
+                if (audioSource != null && emptyClipSound != null)
+                {
+                    audioSource.PlayOneShot(emptyClipSound);
+                }
+                StartReload();
+            }
+        }
+    }
+    
+    void UpdateAiming()
+    {
+        // Get mouse position in world space
+        if (playerCamera != null)
+        {
+            mousePosition = playerCamera.ScreenToWorldPoint(Input.mousePosition);
+            shootDirection = (mousePosition - (Vector2)transform.position).normalized;
+            
+            // Update fire point position based on aim direction
+            if (firePoint != null)
+            {
+                float angle = Mathf.Atan2(shootDirection.y, shootDirection.x) * Mathf.Rad2Deg;
+                firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+                
+                // Position fire point at edge of player
+                firePoint.localPosition = new Vector3(
+                    Mathf.Abs(shootDirection.x) * 0.5f, 
+                    shootDirection.y * 0.3f, 
+                    0
+                );
+            }
+            
+            // Flip player sprite based on mouse position
+            if (spriteRenderer != null)
+            {
+                spriteRenderer.flipX = mousePosition.x < transform.position.x;
+            }
+        }
+    }
+    
+    void Shoot()
+    {
+        if (bulletPrefab == null || firePoint == null) return;
+        
+        currentAmmo--;
+        
+        // Create bullet
+        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
+        Bullet bulletScript = bullet.GetComponent<Bullet>();
+        
+        if (bulletScript != null)
+        {
+            bulletScript.Initialize(shootDirection, true, bulletDamage); // Now using int
+        }
+        else
+        {
+            // If no Bullet script, just add velocity
+            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
+            if (bulletRb != null)
+            {
+                bulletRb.velocity = shootDirection * bulletSpeed;
+            }
+        }
+        
+        // Play shoot sound
+        if (audioSource != null && shootSound != null)
+        {
+            audioSource.PlayOneShot(shootSound);
+        }
+        
+        // Show muzzle flash
+        if (muzzleFlash != null)
+        {
+            StartCoroutine(ShowMuzzleFlash());
+        }
+        
+        // Play shoot animation
+        if (animator != null)
+        {
+            animator.Play(shootHash);
+        }
+        
+        Debug.Log($"Shot fired! Ammo: {currentAmmo}/{maxAmmo}");
+    }
+    
+    System.Collections.IEnumerator ShowMuzzleFlash()
+    {
+        if (muzzleFlash != null)
+        {
+            GameObject flash = Instantiate(muzzleFlash, firePoint.position, firePoint.rotation);
+            yield return new WaitForSeconds(0.1f);
+            if (flash != null) Destroy(flash);
+        }
+    }
+    
+    void StartReload()
+    {
+        if (currentAmmo >= maxAmmo || isReloading) return;
+        
+        StartCoroutine(ReloadCoroutine());
+    }
+    
+    System.Collections.IEnumerator ReloadCoroutine()
+    {
+        isReloading = true;
+        
+        // Play reload sound
+        if (audioSource != null && reloadSound != null)
+        {
+            audioSource.PlayOneShot(reloadSound);
+        }
+        
+        Debug.Log("Reloading...");
+        
+        yield return new WaitForSeconds(reloadTime);
+        
+        currentAmmo = maxAmmo;
+        isReloading = false;
+        
+        Debug.Log("Reload complete!");
     }
 
     void HandleMovement()
     {
         rb.velocity = new Vector2(movementInput * moveSpeed, rb.velocity.y);
-
-        if (movementInput != 0)
-        {
-            spriteRenderer.flipX = movementInput < 0;
-        }
     }
 
     void OnCollisionEnter2D(Collision2D collision)
@@ -117,4 +303,9 @@ public class PlayerController2D : MonoBehaviour
             animator.Play(idleHash);
         }
     }
+    
+    // Public getters for UI
+    public int GetCurrentAmmo() { return currentAmmo; }
+    public int GetMaxAmmo() { return maxAmmo; }
+    public bool IsReloading() { return isReloading; }
 }

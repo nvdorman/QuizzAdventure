@@ -9,15 +9,16 @@ public class GameOverManager : MonoBehaviour
     public Button exitButton;
     
     [Header("Scene Settings")]
-    public string mainMenuSceneName = "MainMenu"; // Nama scene menu utama
-    public bool useCurrentScene = true; // Jika true, restart scene saat ini
-    public string specificSceneName = ""; // Jika useCurrentScene false, gunakan scene ini
+    public string mainMenuSceneName = "MainMenu";
+    public bool useCurrentScene = true;
+    public string specificSceneName = "";
     
     [Header("Audio")]
     public AudioClip buttonClickSound;
     public AudioClip gameOverSound;
     
     private AudioSource audioSource;
+    private bool gameOverActivated = false;
     
     void Start()
     {
@@ -39,33 +40,39 @@ public class GameOverManager : MonoBehaviour
             exitButton.onClick.AddListener(ExitToMainMenu);
         }
         
-        // Play game over sound
-        if (audioSource != null && gameOverSound != null)
+        // JANGAN pause game di Start() - hanya pause saat game over
+        // Time.timeScale = 0f; // HAPUS BARIS INI
+    }
+    
+    // Tambahkan method ini untuk dipanggil saat game over
+    public void ActivateGameOver()
+    {
+        if (!gameOverActivated)
         {
-            audioSource.PlayOneShot(gameOverSound);
+            gameOverActivated = true;
+            
+            // Play game over sound
+            if (audioSource != null && gameOverSound != null)
+            {
+                audioSource.PlayOneShot(gameOverSound);
+            }
+            
+            // Pause game hanya saat game over benar-benar terjadi
+            Time.timeScale = 0f;
         }
-        
-        // Pastikan time scale normal untuk UI
-        Time.timeScale = 0f; // Pause game
     }
     
     public void RestartGame()
     {
-        // Play button sound
         PlayButtonSound();
-        
-        // Reset time scale
         Time.timeScale = 1f;
         
-        // Restart scene
         if (useCurrentScene)
         {
-            // Restart scene yang sedang aktif
             SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
         else
         {
-            // Load scene tertentu
             if (!string.IsNullOrEmpty(specificSceneName))
             {
                 SceneManager.LoadScene(specificSceneName);
@@ -79,24 +86,18 @@ public class GameOverManager : MonoBehaviour
     
     public void ExitToMainMenu()
     {
-        // Play button sound
         PlayButtonSound();
-        
-        // Reset time scale
         Time.timeScale = 1f;
         
-        // Load main menu scene
         if (!string.IsNullOrEmpty(mainMenuSceneName))
         {
             SceneManager.LoadScene(mainMenuSceneName);
         }
         else
         {
-            // Jika tidak ada main menu, keluar dari aplikasi
             Debug.Log("No main menu scene specified. Quitting application...");
             Application.Quit();
             
-            // Untuk editor Unity
             #if UNITY_EDITOR
             UnityEditor.EditorApplication.isPlaying = false;
             #endif
@@ -113,7 +114,6 @@ public class GameOverManager : MonoBehaviour
     
     void OnDestroy()
     {
-        // Pastikan time scale kembali normal
         Time.timeScale = 1f;
     }
 }
