@@ -37,6 +37,7 @@ public class PlayerController2D : MonoBehaviour
     
     [Header("Animation Settings")]
     public float walkAnimationSpeed = 7.5f;
+    public float jumpAnimationMinTime = 0.3f; // Untuk animasi jump
     
     [Header("Collider Settings")]
     [Range(0.5f, 1.0f)]
@@ -46,7 +47,7 @@ public class PlayerController2D : MonoBehaviour
     
     [Header("Ground Check")]
     public LayerMask groundLayerMask = 1;
-    public float groundCheckDistance = 0.1f;
+    public float groundCheckDistance = 0.2f;
     
     [Header("Tags & Layers")]
     public string groundTag = "Ground";
@@ -89,6 +90,10 @@ public class PlayerController2D : MonoBehaviour
     private float movementInput;
     private float originalMoveSpeed;
     private Color originalColor;
+    
+    // SIMPLE JUMP SYSTEM
+    private bool canJump = true; // Bisa jump atau tidak
+    private float jumpTime = 0f; // Untuk animasi jump
     
     // Character data
     private CharacterSprites currentCharacterSprites;
@@ -228,6 +233,8 @@ public class PlayerController2D : MonoBehaviour
     void SetupInitialState()
     {
         currentAnimationState = IDLE;
+        isGrounded = true;
+        canJump = true; // Mulai dengan bisa jump
     }
 
     void UpdateColliderToFitSprite(Sprite sprite)
@@ -272,10 +279,19 @@ public class PlayerController2D : MonoBehaviour
         // Get horizontal input
         movementInput = Input.GetAxisRaw("Horizontal");
 
-        // Jump input (tidak bisa jump saat jongkok)
-        if (Input.GetButtonDown("Jump") && isGrounded && !isDucking)
+        // JUMP INPUT dengan debug lebih detail
+        if (Input.GetButtonDown("Jump"))
         {
-            Jump();
+            Debug.Log($"🎮 Jump button pressed! Moving: {movementInput != 0}, Grounded: {isGrounded}, CanJump: {canJump}, VelY: {rb.velocity.y:F2}");
+            
+            if (isGrounded && canJump && !isDucking)
+            {
+                Jump();
+            }
+            else
+            {
+                Debug.Log($"❌ Jump conditions not met!");
+            }
         }
         
         // Duck/Crouch input (Ctrl key)
@@ -290,8 +306,29 @@ public class PlayerController2D : MonoBehaviour
     
     void Jump()
     {
+        // Double check kondisi jump dengan lebih ketat
+        if (!isGrounded || !canJump || isDucking)
+        {
+            Debug.Log($"❌ Jump denied: grounded={isGrounded}, canJump={canJump}, ducking={isDucking}");
+            return;
+        }
+        
+        // Additional check: jika velocity Y masih positif (sedang naik), jangan jump
+        if (rb.velocity.y > 0.2f)
+        {
+            Debug.Log($"❌ Jump denied: still moving up (velY={rb.velocity.y:F2})");
+            return;
+        }
+        
+        // Execute jump
         rb.velocity = new Vector2(rb.velocity.x, jumpForce);
-        Debug.Log("🦘 Player jumped!");
+        
+        // IMMEDIATE LOCKS - Langsung kunci semua
+        canJump = false;
+        isGrounded = false;
+        jumpTime = Time.time;
+        
+        Debug.Log($"🚀 Jump executed! Locks applied. VelY: {rb.velocity.y:F2}");
     }
     
     void HandleDuckInput()
@@ -322,26 +359,48 @@ public class PlayerController2D : MonoBehaviour
         Debug.Log("🚶 Player stopped ducking!");
     }
     
+    // SIMPLE GROUND CHECK
     void CheckGrounded()
     {
         if (capsuleCollider == null) return;
         
-        // Cast down from collider bottom
-        Vector2 colliderBottom = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
+        // Multiple raycast points untuk deteksi ground yang lebih akurat
+        Vector2 centerBottom = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
+        Vector2 leftBottom = centerBottom - new Vector2(capsuleCollider.size.x * 0.4f, 0);
+        Vector2 rightBottom = centerBottom + new Vector2(capsuleCollider.size.x * 0.4f, 0);
         
-        RaycastHit2D hit = Physics2D.Raycast(colliderBottom, Vector2.down, groundCheckDistance, groundLayerMask);
+        // Raycast dari 3 titik berbeda
+        RaycastHit2D centerHit = Physics2D.Raycast(centerBottom, Vector2.down, groundCheckDistance, groundLayerMask);
+        RaycastHit2D leftHit = Physics2D.Raycast(leftBottom, Vector2.down, groundCheckDistance, groundLayerMask);
+        RaycastHit2D rightHit = Physics2D.Raycast(rightBottom, Vector2.down, groundCheckDistance, groundLayerMask);
         
-        // Also check with tag system as fallback
+        bool groundDetected = centerHit.collider != null || leftHit.collider != null || rightHit.collider != null;
         bool wasGrounded = isGrounded;
-        isGrounded = hit.collider != null;
         
-        // Debug ray
-        Debug.DrawRay(colliderBottom, Vector2.down * groundCheckDistance, isGrounded ? Color.green : Color.red);
-        
-        if (!wasGrounded && isGrounded)
+        // STRICT GROUNDING RULES - Mencegah spam jump saat bergerak
+        if (groundDetected && !wasGrounded)
         {
-            Debug.Log("Player landed");
+            // Hanya set grounded jika velocity Y sudah cukup ke bawah (tidak sedang naik/jump)
+            bool isMovingDownward = rb.velocity.y <= 0.5f;
+            
+            if (isMovingDownward)
+            {
+                isGrounded = true;
+                canJump = true; // RESTORE JUMP ABILITY
+                Debug.Log($"✅ Grounded! Velocity Y: {rb.velocity.y:F2}");
+            }
         }
+        else if (!groundDetected && wasGrounded)
+        {
+            isGrounded = false;
+            // TIDAK langsung set canJump = false di sini, biarkan jump() yang handle
+        }
+        
+        // Debug rays untuk visualisasi
+        Color rayColor = groundDetected ? Color.green : Color.red;
+        Debug.DrawRay(centerBottom, Vector2.down * groundCheckDistance, rayColor);
+        Debug.DrawRay(leftBottom, Vector2.down * groundCheckDistance, rayColor);
+        Debug.DrawRay(rightBottom, Vector2.down * groundCheckDistance, rayColor);
     }
     
     void HandleShooting()
@@ -546,41 +605,6 @@ public class PlayerController2D : MonoBehaviour
                 spriteRenderer.flipX = mousePos.x < transform.position.x;
             }
         }
-        
-        // Debug movement
-        if (movementInput != 0)
-        {
-            Debug.Log($"Moving: input={movementInput}, velocity={rb.velocity.x}, speed={moveSpeed}");
-        }
-    }
-
-    void OnCollisionEnter2D(Collision2D collision)
-    {
-        if (collision.gameObject.CompareTag(groundTag))
-        {
-            isGrounded = true;
-        }
-    }
-
-    void OnCollisionStay2D(Collision2D collision)
-    {
-        if (collision.gameObject.CompareTag(groundTag))
-        {
-            isGrounded = true;
-        }
-    }
-
-    void OnCollisionExit2D(Collision2D collision)
-    {
-        if (collision.gameObject.CompareTag(groundTag))
-        {
-            isGrounded = false;
-        }
-    }
-
-    public void SetSlowMotion(float slowFactor)
-    {
-        moveSpeed = originalMoveSpeed * slowFactor;
     }
 
     void UpdateAnimation()
@@ -590,13 +614,15 @@ public class PlayerController2D : MonoBehaviour
         string newAnimationState = "";
         Sprite newSprite = null;
         
-        // Determine animation state priority: Duck -> Jump -> Walk -> Idle
+        // Cek apakah masih dalam periode minimum animasi jump
+        bool isInJumpAnimation = (Time.time - jumpTime) < jumpAnimationMinTime;
+        
         if (isDucking)
         {
             newAnimationState = DUCK;
             newSprite = currentCharacterSprites.duck;
         }
-        else if (!isGrounded)
+        else if (!isGrounded || isInJumpAnimation)
         {
             newAnimationState = JUMP;
             newSprite = currentCharacterSprites.jump;
@@ -634,15 +660,39 @@ public class PlayerController2D : MonoBehaviour
         }
     }
     
-    // Public methods
+    // SEMUA PUBLIC METHODS YANG MUNGKIN DIBUTUHKAN SCRIPT LAIN
     public int GetCurrentAmmo() { return currentAmmo; }
+    
     public int GetMaxAmmo() { return maxAmmo; }
+    
     public bool IsReloading() { return isReloading; }
+    
     public float GetReloadProgress() { return reloadProgress; }
+    
     public bool IsDucking() { return isDucking; }
+    
     public bool IsGrounded() { return isGrounded; }
+    
+    public bool CanJump() { return canJump; }
+    
     public CharacterColor GetCharacterColor() { return characterColor; }
     
+    // METHOD YANG DIPERLUKAN OLEH SCRIPT LAIN:
+    public void SetSlowMotion(float slowFactor)
+    {
+        moveSpeed = originalMoveSpeed * slowFactor;
+    }
+    
+    public bool HasJumped() { return !canJump; } // Return kebalikan dari canJump
+    
+    public bool IsJumpLocked() { return !canJump; } // Alias untuk HasJumped
+    
+    public bool IsAgainstWall() { return false; } // Simple return false (fitur wall check dihapus)
+    
+    public bool IsWallHanging() { return false; } // Simple return false
+    
+    public float GetGroundedTime() { return isGrounded ? 1f : 0f; } // Simple implementation
+
     public void SetAutoFire(bool auto)
     {
         autoFire = auto;
@@ -706,14 +756,18 @@ public class PlayerController2D : MonoBehaviour
             Gizmos.color = Color.green;
             Vector3 colliderCenter = transform.position + (Vector3)capsuleCollider.offset;
             Gizmos.DrawWireCube(colliderCenter, capsuleCollider.size);
-        }
-        
-        // Draw ground check
-        if (Application.isPlaying)
-        {
-            Vector2 colliderBottom = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
-            Gizmos.color = isGrounded ? Color.green : Color.red;
-            Gizmos.DrawLine(colliderBottom, colliderBottom + Vector2.down * groundCheckDistance);
+            
+            // Draw ground check
+            if (Application.isPlaying)
+            {
+                Vector2 rayStart = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
+                Gizmos.color = isGrounded ? Color.green : Color.red;
+                Gizmos.DrawLine(rayStart, rayStart + Vector2.down * groundCheckDistance);
+                
+                // Draw jump ability indicator
+                Gizmos.color = canJump ? Color.green : Color.red;
+                Gizmos.DrawWireSphere(transform.position + Vector3.up * 2f, 0.3f);
+            }
         }
     }
 }
