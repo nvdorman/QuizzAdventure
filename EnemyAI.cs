@@ -26,8 +26,8 @@ public class EnemyAI : MonoBehaviour
     public float attackRange = 1.5f;
     public float shootRange = 8f;
     public float losePlayerRange = 10f;
-    public LayerMask playerLayer = 1;
-    public LayerMask obstacleLayer = 1;
+    public LayerMask playerLayer = (1 << 3); // Player layer
+    public LayerMask obstacleLayer = (1 << 8); // Ground layer
     
     [Header("Movement Settings")]
     public float moveSpeed = 3f;
@@ -71,6 +71,11 @@ public class EnemyAI : MonoBehaviour
     public AudioClip detectSound;
     public AudioClip attackSound;
     public AudioClip alertSound;
+
+    [Header("Physics")]
+    public LayerMask groundLayer = (1 << 8); // Ground layer
+    public bool useGravity = true;
+    public float jumpForce = 5f;
     
     // Private variables
     private Transform player;
@@ -78,6 +83,8 @@ public class EnemyAI : MonoBehaviour
     private SpriteRenderer spriteRenderer;
     private AudioSource audioSource;
     private Collider2D enemyCollider;
+
+    private EnemyGroundDetection groundDetection;
     
     // Animation variables
     private int currentSpriteIndex = 0;
@@ -154,27 +161,27 @@ public class EnemyAI : MonoBehaviour
         InitializeAI();
         currentHealth = maxHealth;
     }
-    
+
     void InitializeComponents()
     {
         rb = GetComponent<Rigidbody2D>();
         spriteRenderer = GetComponent<SpriteRenderer>();
         enemyCollider = GetComponent<Collider2D>();
-        
+
         // Setup audio
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
         }
-        
+
         // Find player
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
         {
             player = playerObj.transform;
         }
-        
+
         // Setup fire point if not assigned
         if (firePoint == null && canShoot)
         {
@@ -182,6 +189,20 @@ public class EnemyAI : MonoBehaviour
             firePointObj.transform.SetParent(transform);
             firePointObj.transform.localPosition = new Vector3(0.5f, 0, 0);
             firePoint = firePointObj.transform;
+        }
+        
+        // Setup ground detection
+        groundDetection = GetComponent<EnemyGroundDetection>();
+        if (groundDetection == null && useGravity)
+        {
+            groundDetection = gameObject.AddComponent<EnemyGroundDetection>();
+            groundDetection.groundLayer = groundLayer;
+        }
+
+        // Set gravity
+        if (rb != null && useGravity)
+        {
+            rb.gravityScale = 3f; // Adjust sesuai kebutuhan
         }
     }
     
@@ -812,7 +833,17 @@ public class EnemyAI : MonoBehaviour
     void MoveTowardsTarget(Vector2 target, float speed)
     {
         Vector2 direction = (target - (Vector2)transform.position).normalized;
-        rb.velocity = direction * speed;
+        
+        // Only move horizontally, let gravity handle vertical movement
+        if (groundDetection != null && groundDetection.IsGrounded())
+        {
+            rb.velocity = new Vector2(direction.x * speed, rb.velocity.y);
+        }
+        else
+        {
+            // If not grounded, maintain current velocity but adjust horizontal
+            rb.velocity = new Vector2(direction.x * speed, rb.velocity.y);
+        }
         
         if (spriteRenderer != null)
         {
