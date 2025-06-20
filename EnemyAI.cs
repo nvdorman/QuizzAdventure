@@ -77,6 +77,11 @@ public class EnemyAI : MonoBehaviour
     public bool useGravity = true;
     public float jumpForce = 5f;
     
+    [Header("Auto Collider Settings")]
+    public bool autoAdjustCollider = true; // Otomatis sesuaikan dengan sprite
+    public float colliderSizeMultiplier = 0.8f; // Berapa persen dari ukuran sprite (0.8 = 80%)
+    public bool updateColliderPerFrame = false; // Update collider setiap frame sprite berubah
+    
     // Private variables
     private Transform player;
     private Rigidbody2D rb;
@@ -85,6 +90,7 @@ public class EnemyAI : MonoBehaviour
     private Collider2D enemyCollider;
 
     private EnemyGroundDetection groundDetection;
+    private EnemyCollision enemyCollisionScript;
     
     // Animation variables
     private int currentSpriteIndex = 0;
@@ -164,15 +170,65 @@ public class EnemyAI : MonoBehaviour
 
     void InitializeComponents()
     {
+        // Setup Rigidbody2D - OTOMATIS
         rb = GetComponent<Rigidbody2D>();
+        if (rb == null)
+        {
+            rb = gameObject.AddComponent<Rigidbody2D>();
+            Debug.Log("✅ Rigidbody2D otomatis ditambahkan ke " + gameObject.name);
+        }
+        
+        // Setup SpriteRenderer - OTOMATIS
         spriteRenderer = GetComponent<SpriteRenderer>();
+        if (spriteRenderer == null)
+        {
+            spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
+            Debug.Log("✅ SpriteRenderer otomatis ditambahkan ke " + gameObject.name);
+        }
+        
+        // Setup Collider2D - OTOMATIS berdasarkan ukuran sprite
         enemyCollider = GetComponent<Collider2D>();
+        if (enemyCollider == null)
+        {
+            BoxCollider2D boxCollider = gameObject.AddComponent<BoxCollider2D>();
+            enemyCollider = boxCollider;
+            Debug.Log("✅ BoxCollider2D otomatis ditambahkan ke " + gameObject.name);
+        }
+        
+        // Setup physics
+        if (rb != null)
+        {
+            if (useGravity)
+            {
+                rb.gravityScale = 3f;
+                rb.freezeRotation = true;
+            }
+            else
+            {
+                rb.gravityScale = 0f;
+            }
+            
+            rb.mass = 1f;
+            rb.drag = 2f;
+            rb.angularDrag = 50f;
+        }
 
-        // Setup audio
+        // Setup audio - OTOMATIS
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.playOnAwake = false;
+            audioSource.spatialBlend = 0f;
+            Debug.Log("✅ AudioSource otomatis ditambahkan ke " + gameObject.name);
+        }
+
+        // Setup EnemyCollision script - OTOMATIS
+        enemyCollisionScript = GetComponent<EnemyCollision>();
+        if (enemyCollisionScript == null)
+        {
+            enemyCollisionScript = gameObject.AddComponent<EnemyCollision>();
+            Debug.Log("✅ EnemyCollision script otomatis ditambahkan ke " + gameObject.name);
         }
 
         // Find player
@@ -180,6 +236,11 @@ public class EnemyAI : MonoBehaviour
         if (playerObj != null)
         {
             player = playerObj.transform;
+            Debug.Log("✅ Player ditemukan: " + player.name);
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ Player dengan tag 'Player' tidak ditemukan!");
         }
 
         // Setup fire point if not assigned
@@ -191,24 +252,20 @@ public class EnemyAI : MonoBehaviour
             firePoint = firePointObj.transform;
         }
         
-        // Setup ground detection
+        // Setup ground detection - OTOMATIS
         groundDetection = GetComponent<EnemyGroundDetection>();
         if (groundDetection == null && useGravity)
         {
             groundDetection = gameObject.AddComponent<EnemyGroundDetection>();
             groundDetection.groundLayer = groundLayer;
-        }
-
-        // Set gravity
-        if (rb != null && useGravity)
-        {
-            rb.gravityScale = 3f; // Adjust sesuai kebutuhan
+            Debug.Log("✅ EnemyGroundDetection otomatis ditambahkan ke " + gameObject.name);
         }
     }
     
     void SetupEnemySprites()
     {
         string baseName = GetEnemyBaseName();
+        Debug.Log($"🎨 Setting up sprites untuk {baseName}...");
         
         // Special handling for Barnacle
         if (enemyType == EnemyType.Barnacle)
@@ -219,7 +276,6 @@ public class EnemyAI : MonoBehaviour
             canPatrol = false;
             canShoot = true;
             
-            // Setup animasi khusus barnacle
             if (idleSprites.Length == 0)
             {
                 idleSprites = LoadSpritesForAnimation(baseName, "rest");
@@ -237,7 +293,6 @@ public class EnemyAI : MonoBehaviour
         }
         else
         {
-            // Setup normal untuk enemy lain
             if (idleSprites.Length == 0)
             {
                 idleSprites = LoadSpritesForAnimation(baseName, "rest");
@@ -264,7 +319,130 @@ public class EnemyAI : MonoBehaviour
             deathSprites = LoadSpritesForAnimation(baseName, "flat");
         }
         
+        // PERBAIKAN: Set sprite pertama SEBELUM PlayAnimation
+        SetInitialSprite();
+        
+        // Kemudian play animation
         PlayAnimation(AnimationState.Idle);
+        
+        // OTOMATIS sesuaikan collider setelah sprite di-set
+        StartCoroutine(DelayedAutoAdjustCollider());
+    }
+    
+    // Method untuk set sprite pertama langsung
+    void SetInitialSprite()
+    {
+        Sprite firstSprite = null;
+        
+        // Cari sprite pertama yang tersedia
+        if (idleSprites != null && idleSprites.Length > 0 && idleSprites[0] != null)
+        {
+            firstSprite = idleSprites[0];
+        }
+        else if (walkSprites != null && walkSprites.Length > 0 && walkSprites[0] != null)
+        {
+            firstSprite = walkSprites[0];
+        }
+        else if (attackSprites != null && attackSprites.Length > 0 && attackSprites[0] != null)
+        {
+            firstSprite = attackSprites[0];
+        }
+        
+        if (firstSprite != null && spriteRenderer != null)
+        {
+            spriteRenderer.sprite = firstSprite;
+            spriteRenderer.color = normalColor;
+            Debug.Log($"✅ Sprite pertama di-set: {firstSprite.name}");
+        }
+        else
+        {
+            Debug.LogWarning($"⚠️ Tidak ada sprite yang ditemukan untuk {gameObject.name}!");
+            
+            // Fallback: coba load sprite default langsung
+            string baseName = GetEnemyBaseName();
+            Sprite fallbackSprite = Resources.Load<Sprite>("Enemies/" + baseName + "_rest");
+            if (fallbackSprite == null)
+            {
+                fallbackSprite = Resources.Load<Sprite>(baseName + "_rest");
+            }
+            
+            if (fallbackSprite != null && spriteRenderer != null)
+            {
+                spriteRenderer.sprite = fallbackSprite;
+                spriteRenderer.color = normalColor;
+                Debug.Log($"✅ Fallback sprite di-set: {fallbackSprite.name}");
+            }
+        }
+    }
+    
+    // Delayed auto adjust collider untuk memastikan sprite sudah di-load
+    IEnumerator DelayedAutoAdjustCollider()
+    {
+        yield return new WaitForEndOfFrame(); // Wait 1 frame
+        AutoAdjustColliderToSprite();
+    }
+    
+    // Method untuk otomatis menyesuaikan collider dengan ukuran sprite
+    void AutoAdjustColliderToSprite()
+    {
+        if (!autoAdjustCollider) return;
+        
+        if (spriteRenderer == null || spriteRenderer.sprite == null || enemyCollider == null)
+        {
+            Debug.LogWarning($"⚠️ Tidak bisa auto-adjust collider untuk {gameObject.name}: SpriteRenderer atau Sprite null");
+            return;
+        }
+        
+        if (enemyCollider is BoxCollider2D)
+        {
+            BoxCollider2D boxCollider = (BoxCollider2D)enemyCollider;
+            Sprite currentSprite = spriteRenderer.sprite;
+            
+            // Dapatkan ukuran sprite dalam world units
+            Vector2 spriteSize = currentSprite.bounds.size;
+            
+            // Sesuaikan ukuran collider menggunakan multiplier yang bisa diatur
+            Vector2 newColliderSize = spriteSize * colliderSizeMultiplier;
+            
+            // Set ukuran collider
+            boxCollider.size = newColliderSize;
+            
+            // Auto-calculate offset untuk menempatkan collider di bagian bawah sprite (kaki enemy)
+            float offsetY = -(spriteSize.y - newColliderSize.y) / 2f;
+            boxCollider.offset = new Vector2(0, offsetY);
+            
+            Debug.Log($"🎯 Auto-adjusted collider untuk {gameObject.name}:");
+            Debug.Log($"   📏 Sprite size: {spriteSize}");
+            Debug.Log($"   📦 Collider size: {newColliderSize} ({colliderSizeMultiplier * 100}% dari sprite)");
+            Debug.Log($"   📍 Collider offset: {boxCollider.offset}");
+        }
+    }
+
+    // Method untuk update collider saat sprite berubah (saat animasi)
+    void UpdateColliderForCurrentSprite()
+    {
+        if (!updateColliderPerFrame || !autoAdjustCollider) return;
+        
+        if (spriteRenderer != null && spriteRenderer.sprite != null && enemyCollider is BoxCollider2D)
+        {
+            BoxCollider2D boxCollider = (BoxCollider2D)enemyCollider;
+            Sprite currentSprite = spriteRenderer.sprite;
+            
+            Vector2 newSpriteSize = currentSprite.bounds.size;
+            Vector2 currentColliderSize = boxCollider.size;
+            
+            if (Mathf.Abs(newSpriteSize.x - currentColliderSize.x / colliderSizeMultiplier) > 0.1f ||
+                Mathf.Abs(newSpriteSize.y - currentColliderSize.y / colliderSizeMultiplier) > 0.1f)
+            {
+                Vector2 newColliderSize = newSpriteSize * colliderSizeMultiplier;
+                boxCollider.size = newColliderSize;
+                
+                float offsetY = -(newSpriteSize.y - newColliderSize.y) / 2f;
+                boxCollider.offset = new Vector2(0, offsetY);
+                
+                Debug.Log($"🔄 Updated collider size untuk {gameObject.name}: {newColliderSize}");
+            }
+        }
     }
     
     string GetEnemyBaseName()
@@ -295,32 +473,45 @@ public class EnemyAI : MonoBehaviour
     {
         System.Collections.Generic.List<Sprite> sprites = new System.Collections.Generic.List<Sprite>();
         
+        Debug.Log($"🔍 Loading sprites: {baseName} - {animationType}");
+        
         switch (animationType)
         {
             case "rest":
-                // Cari di folder Enemies
                 Sprite restSprite = Resources.Load<Sprite>("Enemies/" + baseName + "_rest");
                 if (restSprite == null)
                 {
-                    // Fallback: cari di root Resources
                     restSprite = Resources.Load<Sprite>(baseName + "_rest");
                 }
-                if (restSprite != null) sprites.Add(restSprite);
+                if (restSprite != null) 
+                {
+                    sprites.Add(restSprite);
+                    Debug.Log($"   ✅ Found rest sprite: {restSprite.name}");
+                }
+                else
+                {
+                    Debug.LogWarning($"   ❌ Rest sprite not found for {baseName}");
+                }
                 break;
                 
             case "walk":
-                // FIXED: Renamed variables to avoid scope conflict
                 Sprite walkSpriteA = Resources.Load<Sprite>("Enemies/" + baseName + "_walk_a");
                 Sprite walkSpriteB = Resources.Load<Sprite>("Enemies/" + baseName + "_walk_b");
                 
-                // Fallback ke root jika tidak ada di Enemies folder
                 if (walkSpriteA == null) walkSpriteA = Resources.Load<Sprite>(baseName + "_walk_a");
                 if (walkSpriteB == null) walkSpriteB = Resources.Load<Sprite>(baseName + "_walk_b");
                 
-                if (walkSpriteA != null) sprites.Add(walkSpriteA);
-                if (walkSpriteB != null) sprites.Add(walkSpriteB);
+                if (walkSpriteA != null) 
+                {
+                    sprites.Add(walkSpriteA);
+                    Debug.Log($"   ✅ Found walk_a sprite: {walkSpriteA.name}");
+                }
+                if (walkSpriteB != null) 
+                {
+                    sprites.Add(walkSpriteB);
+                    Debug.Log($"   ✅ Found walk_b sprite: {walkSpriteB.name}");
+                }
                 
-                // Fallback ke move jika walk tidak ada
                 if (sprites.Count == 0)
                 {
                     Sprite moveSpriteA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
@@ -329,23 +520,37 @@ public class EnemyAI : MonoBehaviour
                     if (moveSpriteA == null) moveSpriteA = Resources.Load<Sprite>(baseName + "_move_a");
                     if (moveSpriteB == null) moveSpriteB = Resources.Load<Sprite>(baseName + "_move_b");
                     
-                    if (moveSpriteA != null) sprites.Add(moveSpriteA);
-                    if (moveSpriteB != null) sprites.Add(moveSpriteB);
+                    if (moveSpriteA != null) 
+                    {
+                        sprites.Add(moveSpriteA);
+                        Debug.Log($"   ✅ Found move_a sprite: {moveSpriteA.name}");
+                    }
+                    if (moveSpriteB != null) 
+                    {
+                        sprites.Add(moveSpriteB);
+                        Debug.Log($"   ✅ Found move_b sprite: {moveSpriteB.name}");
+                    }
                 }
                 break;
                 
             case "move":
-                // Khusus untuk barnacle dan enemy yang menggunakan move animation
                 Sprite moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_a");
                 Sprite moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_b");
                 
                 if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_a");
                 if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_b");
                 
-                if (moveA != null) sprites.Add(moveA);
-                if (moveB != null) sprites.Add(moveB);
+                if (moveA != null) 
+                {
+                    sprites.Add(moveA);
+                    Debug.Log($"   ✅ Found _a sprite: {moveA.name}");
+                }
+                if (moveB != null) 
+                {
+                    sprites.Add(moveB);
+                    Debug.Log($"   ✅ Found _b sprite: {moveB.name}");
+                }
                 
-                // Alternatif naming
                 if (sprites.Count == 0)
                 {
                     moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
@@ -354,8 +559,16 @@ public class EnemyAI : MonoBehaviour
                     if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_move_a");
                     if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_move_b");
                     
-                    if (moveA != null) sprites.Add(moveA);
-                    if (moveB != null) sprites.Add(moveB);
+                    if (moveA != null) 
+                    {
+                        sprites.Add(moveA);
+                        Debug.Log($"   ✅ Found move_a sprite: {moveA.name}");
+                    }
+                    if (moveB != null) 
+                    {
+                        sprites.Add(moveB);
+                        Debug.Log($"   ✅ Found move_b sprite: {moveB.name}");
+                    }
                 }
                 break;
                 
@@ -366,24 +579,47 @@ public class EnemyAI : MonoBehaviour
                 Sprite jump = Resources.Load<Sprite>("Enemies/" + baseName + "_jump");
                 Sprite fly = Resources.Load<Sprite>("Enemies/" + baseName + "_fly");
                 
-                // Fallback
                 if (attackA == null) attackA = Resources.Load<Sprite>(baseName + "_attack_a");
                 if (attackB == null) attackB = Resources.Load<Sprite>(baseName + "_attack_b");
                 if (attackRest == null) attackRest = Resources.Load<Sprite>(baseName + "_attack_rest");
                 if (jump == null) jump = Resources.Load<Sprite>(baseName + "_jump");
                 if (fly == null) fly = Resources.Load<Sprite>(baseName + "_fly");
                 
-                if (attackA != null) sprites.Add(attackA);
-                if (attackB != null) sprites.Add(attackB);
-                if (attackRest != null) sprites.Add(attackRest);
-                if (jump != null) sprites.Add(jump);
-                if (fly != null) sprites.Add(fly);
+                if (attackA != null) 
+                {
+                    sprites.Add(attackA);
+                    Debug.Log($"   ✅ Found attack_a sprite: {attackA.name}");
+                }
+                if (attackB != null) 
+                {
+                    sprites.Add(attackB);
+                    Debug.Log($"   ✅ Found attack_b sprite: {attackB.name}");
+                }
+                if (attackRest != null) 
+                {
+                    sprites.Add(attackRest);
+                    Debug.Log($"   ✅ Found attack_rest sprite: {attackRest.name}");
+                }
+                if (jump != null) 
+                {
+                    sprites.Add(jump);
+                    Debug.Log($"   ✅ Found jump sprite: {jump.name}");
+                }
+                if (fly != null) 
+                {
+                    sprites.Add(fly);
+                    Debug.Log($"   ✅ Found fly sprite: {fly.name}");
+                }
                 break;
                 
             case "idle":
                 Sprite idle = Resources.Load<Sprite>("Enemies/" + baseName + "_idle");
                 if (idle == null) idle = Resources.Load<Sprite>(baseName + "_idle");
-                if (idle != null) sprites.Add(idle);
+                if (idle != null) 
+                {
+                    sprites.Add(idle);
+                    Debug.Log($"   ✅ Found idle sprite: {idle.name}");
+                }
                 break;
                 
             case "flat":
@@ -393,13 +629,20 @@ public class EnemyAI : MonoBehaviour
                 if (flat == null) flat = Resources.Load<Sprite>(baseName + "_flat");
                 if (shell == null) shell = Resources.Load<Sprite>(baseName + "_shell");
                 
-                if (flat != null) sprites.Add(flat);
-                if (shell != null) sprites.Add(shell);
+                if (flat != null) 
+                {
+                    sprites.Add(flat);
+                    Debug.Log($"   ✅ Found flat sprite: {flat.name}");
+                }
+                if (shell != null) 
+                {
+                    sprites.Add(shell);
+                    Debug.Log($"   ✅ Found shell sprite: {shell.name}");
+                }
                 break;
         }
         
-        // Debug log untuk troubleshooting
-        Debug.Log($"Loaded {sprites.Count} sprites for {baseName} - {animationType}");
+        Debug.Log($"📊 Total loaded {sprites.Count} sprites for {baseName} - {animationType}");
         
         return sprites.ToArray();
     }
@@ -408,7 +651,6 @@ public class EnemyAI : MonoBehaviour
     {
         startPosition = transform.position;
         
-        // Set initial state
         if (canPatrol && patrolPoints.Length > 0)
         {
             currentState = EnemyState.Patrol;
@@ -418,7 +660,6 @@ public class EnemyAI : MonoBehaviour
             currentState = EnemyState.Idle;
         }
         
-        // Setup effects
         if (alertEffect != null)
         {
             alertEffect.SetActive(false);
@@ -429,11 +670,12 @@ public class EnemyAI : MonoBehaviour
             attackEffect.SetActive(false);
         }
         
-        // Set initial color
         if (spriteRenderer != null)
         {
             spriteRenderer.color = normalColor;
         }
+        
+        Debug.Log($"🤖 AI initialized for {gameObject.name} - State: {currentState}");
     }
     
     void Update()
@@ -471,7 +713,14 @@ public class EnemyAI : MonoBehaviour
             
             if (currentSpriteIndex < currentAnimationSprites.Length && spriteRenderer != null)
             {
+                Sprite previousSprite = spriteRenderer.sprite;
                 spriteRenderer.sprite = currentAnimationSprites[currentSpriteIndex];
+                
+                // OTOMATIS update collider jika sprite berubah ukuran
+                if (previousSprite != spriteRenderer.sprite)
+                {
+                    UpdateColliderForCurrentSprite();
+                }
             }
         }
     }
@@ -508,15 +757,29 @@ public class EnemyAI : MonoBehaviour
                 break;
         }
         
-        // Set first frame immediately
+        // PERBAIKAN: Pastikan sprite di-set dengan benar
         if (currentAnimationSprites != null && currentAnimationSprites.Length > 0 && spriteRenderer != null)
         {
-            spriteRenderer.sprite = currentAnimationSprites[0];
+            if (currentAnimationSprites[0] != null)
+            {
+                spriteRenderer.sprite = currentAnimationSprites[0];
+                Debug.Log($"🎬 Playing animation: {newState} - Sprite: {currentAnimationSprites[0].name}");
+            }
+            else
+            {
+                Debug.LogWarning($"⚠️ Animation sprite is null for {newState}");
+            }
+        }
+        else
+        {
+            Debug.LogWarning($"⚠️ No animation sprites found for {newState}");
         }
     }
     
     void DetectPlayer()
     {
+        if (player == null) return;
+        
         float distanceToPlayer = Vector2.Distance(transform.position, player.position);
         
         if (distanceToPlayer <= detectionRange)
@@ -584,7 +847,15 @@ public class EnemyAI : MonoBehaviour
     
     void HandleIdleState()
     {
-        rb.velocity = Vector2.zero;
+        if (useGravity)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+        else
+        {
+            rb.velocity = Vector2.zero;
+        }
+        
         PlayAnimation(AnimationState.Idle);
         
         if (playerDetected)
@@ -633,7 +904,15 @@ public class EnemyAI : MonoBehaviour
         }
         else
         {
-            rb.velocity = Vector2.zero;
+            if (useGravity)
+            {
+                rb.velocity = new Vector2(0, rb.velocity.y);
+            }
+            else
+            {
+                rb.velocity = Vector2.zero;
+            }
+            
             waitTimer -= Time.deltaTime;
             
             if (waitTimer <= 0f)
@@ -646,7 +925,15 @@ public class EnemyAI : MonoBehaviour
     
     void HandleAlertState()
     {
-        rb.velocity = Vector2.zero;
+        if (useGravity)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+        else
+        {
+            rb.velocity = Vector2.zero;
+        }
+        
         PlayAnimation(AnimationState.Alert);
         
         waitTimer -= Time.deltaTime;
@@ -711,7 +998,15 @@ public class EnemyAI : MonoBehaviour
     
     void HandleAttackState()
     {
-        rb.velocity = Vector2.zero;
+        if (useGravity)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+        else
+        {
+            rb.velocity = Vector2.zero;
+        }
+        
         PlayAnimation(AnimationState.Attack);
         
         if (!playerInRange)
@@ -735,9 +1030,15 @@ public class EnemyAI : MonoBehaviour
     
     void HandleShootState()
     {
-        rb.velocity = Vector2.zero;
+        if (useGravity)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+        else
+        {
+            rb.velocity = Vector2.zero;
+        }
         
-        // Untuk barnacle, gunakan walk animation saat menembak
         if (isBarnacle && walkSprites.Length > 0)
         {
             PlayAnimation(AnimationState.Walk);
@@ -820,13 +1121,29 @@ public class EnemyAI : MonoBehaviour
     
     void HandleStunnedState()
     {
-        rb.velocity = Vector2.zero;
+        if (useGravity)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+        else
+        {
+            rb.velocity = Vector2.zero;
+        }
+        
         PlayAnimation(AnimationState.Idle);
     }
     
     void HandleDeathState()
     {
-        rb.velocity = Vector2.zero;
+        if (useGravity)
+        {
+            rb.velocity = new Vector2(0, rb.velocity.y);
+        }
+        else
+        {
+            rb.velocity = Vector2.zero;
+        }
+        
         PlayAnimation(AnimationState.Death);
     }
     
@@ -834,18 +1151,16 @@ public class EnemyAI : MonoBehaviour
     {
         Vector2 direction = (target - (Vector2)transform.position).normalized;
         
-        // Only move horizontally, let gravity handle vertical movement
-        if (groundDetection != null && groundDetection.IsGrounded())
+        if (useGravity)
         {
             rb.velocity = new Vector2(direction.x * speed, rb.velocity.y);
         }
         else
         {
-            // If not grounded, maintain current velocity but adjust horizontal
-            rb.velocity = new Vector2(direction.x * speed, rb.velocity.y);
+            rb.velocity = direction * speed;
         }
         
-        if (spriteRenderer != null)
+        if (spriteRenderer != null && Mathf.Abs(direction.x) > 0.1f)
         {
             spriteRenderer.flipX = direction.x < 0;
         }
@@ -906,7 +1221,6 @@ public class EnemyAI : MonoBehaviour
         
         lastAttackTime = Time.time;
         
-        // Damage player
         HealthSystem playerHealth = player.GetComponent<HealthSystem>();
         if (playerHealth != null)
         {
@@ -1024,7 +1338,6 @@ public class EnemyAI : MonoBehaviour
         }
         else
         {
-            // Flash red when damaged
             StartCoroutine(FlashRed());
         }
     }
@@ -1069,5 +1382,26 @@ public class EnemyAI : MonoBehaviour
         {
             ChangeState(previousState);
         }
+    }
+
+    // Method untuk debugging collision
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        Debug.Log($"Enemy {gameObject.name} bertabrakan dengan {collision.gameObject.name} (Tag: {collision.gameObject.tag})");
+        
+        if (collision.gameObject.CompareTag("Ground") || ((1 << collision.gameObject.layer) & groundLayer) != 0)
+        {
+            Debug.Log("Enemy menyentuh ground!");
+        }
+        
+        if (collision.gameObject.CompareTag("Player"))
+        {
+            Debug.Log("Enemy menyentuh player!");
+        }
+    }
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        Debug.Log($"Enemy {gameObject.name} trigger dengan {other.gameObject.name} (Tag: {other.gameObject.tag})");
     }
 }

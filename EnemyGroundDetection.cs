@@ -3,7 +3,7 @@ using UnityEngine;
 public class EnemyGroundDetection : MonoBehaviour
 {
     [Header("Ground Detection")]
-    public LayerMask groundLayer = 8; // Set ke layer Ground
+    public LayerMask groundLayer = 8;
     public Transform groundCheck;
     public float groundCheckRadius = 0.2f;
     public float gravityScale = 3f;
@@ -15,13 +15,11 @@ public class EnemyGroundDetection : MonoBehaviour
     {
         rb = GetComponent<Rigidbody2D>();
         
-        // Set gravity scale
         if (rb != null)
         {
             rb.gravityScale = gravityScale;
         }
         
-        // Create ground check point if not assigned
         if (groundCheck == null)
         {
             GameObject groundCheckObj = new GameObject("GroundCheck");
