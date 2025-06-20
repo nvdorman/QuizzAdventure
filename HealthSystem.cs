@@ -119,7 +119,7 @@ public class HealthSystem : MonoBehaviour
             audioSource.PlayOneShot(deathSound);
         }
         
-        Debug.Log("Player died!");
+        Debug.Log("💀 Player died! Initiating game over sequence...");
         OnDeath?.Invoke();
         
         // Disable player controls
@@ -137,38 +137,70 @@ public class HealthSystem : MonoBehaviour
     {
         yield return new WaitForSeconds(2f);
         
-        // Try to find and activate GameOverManager
+        Debug.Log("⏰ Game over delay completed, showing game over panel...");
+        
+        // PERBAIKAN: Coba beberapa metode untuk memastikan game over muncul
+        bool gameOverShown = false;
+        
+        // Method 1: Cari GameOverManager
         GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
         if (gameOverManager != null)
         {
+            Debug.Log("✅ GameOverManager found, activating game over...");
             gameOverManager.ActivateGameOver();
+            gameOverShown = true;
         }
         else
         {
-            // Fallback: Directly show game over canvas and pause game
-            if (gameOverCanvas != null)
+            Debug.LogWarning("⚠️ GameOverManager not found in scene!");
+        }
+        
+        // Method 2: Fallback ke canvas yang di-assign
+        if (!gameOverShown && gameOverCanvas != null)
+        {
+            Debug.Log("🔄 Using fallback canvas method...");
+            gameOverCanvas.gameObject.SetActive(true);
+            
+            // Cek apakah canvas punya GameOverManager
+            GameOverManager canvasManager = gameOverCanvas.GetComponent<GameOverManager>();
+            if (canvasManager != null)
             {
-                gameOverCanvas.gameObject.SetActive(true);
-                Time.timeScale = 0f;
-                Debug.Log("Game Over - Health depleted!");
+                canvasManager.ActivateGameOver();
             }
             else
             {
-                // Last resort: Find any game over canvas in scene
-                Canvas[] canvases = FindObjectsOfType<Canvas>();
-                foreach (Canvas canvas in canvases)
+                Time.timeScale = 0f; // Pause game jika tidak ada manager
+            }
+            gameOverShown = true;
+        }
+        
+        // Method 3: Last resort - cari canvas game over di scene
+        if (!gameOverShown)
+        {
+            Debug.Log("🔄 Searching for game over canvas in scene...");
+            Canvas[] canvases = FindObjectsOfType<Canvas>();
+            foreach (Canvas canvas in canvases)
+            {
+                if (canvas.name.ToLower().Contains("gameover") || 
+                    canvas.name.ToLower().Contains("game_over") ||
+                    canvas.name.ToLower().Contains("gameovercanvas"))
                 {
-                    if (canvas.name.ToLower().Contains("gameover") || 
-                        canvas.name.ToLower().Contains("game_over") ||
-                        canvas.name.ToLower().Contains("gameovercanvas"))
-                    {
-                        canvas.gameObject.SetActive(true);
-                        Time.timeScale = 0f;
-                        Debug.Log("Game Over - Health depleted! (Found canvas: " + canvas.name + ")");
-                        break;
-                    }
+                    canvas.gameObject.SetActive(true);
+                    Time.timeScale = 0f;
+                    gameOverShown = true;
+                    Debug.Log($"✅ Found and activated game over canvas: {canvas.name}");
+                    break;
                 }
             }
+        }
+        
+        if (!gameOverShown)
+        {
+            Debug.LogError("❌ CRITICAL: No game over system found! Please check setup.");
+        }
+        else
+        {
+            Debug.Log("✅ Game over system activated successfully!");
         }
     }
     
@@ -210,17 +242,21 @@ public class HealthSystem : MonoBehaviour
     {
         currentHealth = maxHealth;
         isInvulnerable = false;
+        
         if (spriteRenderer != null)
         {
             spriteRenderer.color = originalColor;
         }
+        
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
         
-        // Re-enable player controller if it was disabled
+        // Re-enable player controller
         PlayerController2D playerController = GetComponent<PlayerController2D>();
         if (playerController != null)
         {
             playerController.enabled = true;
         }
+        
+        Debug.Log("🔄 Health system reset - ready for new game");
     }
 }

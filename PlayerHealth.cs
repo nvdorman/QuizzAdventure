@@ -393,22 +393,27 @@ public class PlayerHealth : MonoBehaviour
     IEnumerator ShowGameOverWithDelay()
     {
         yield return new WaitForSeconds(1f); // Wait for death effects
+    
+        Debug.Log("💀 Starting game over sequence...");
         
-        // Try multiple ways to show game over
+        // PERBAIKAN: Multi-layered approach untuk memastikan game over muncul
         bool gameOverShown = false;
         
-        // Method 1: Try GameOverManager
+        // Method 1: Prioritas utama - GameOverManager
         GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
         if (gameOverManager != null)
         {
+            Debug.Log("✅ GameOverManager found, activating...");
             gameOverManager.ActivateGameOver();
             gameOverShown = true;
         }
         
-        // Method 2: Try assigned canvas
+        // Method 2: Canvas yang di-assign
         if (!gameOverShown && gameOverCanvas != null)
         {
+            Debug.Log("🔄 Using assigned canvas...");
             gameOverCanvas.SetActive(true);
+            
             GameOverManager canvasManager = gameOverCanvas.GetComponent<GameOverManager>();
             if (canvasManager != null)
             {
@@ -416,14 +421,15 @@ public class PlayerHealth : MonoBehaviour
             }
             else
             {
-                Time.timeScale = 0f; // Pause game if no manager
+                Time.timeScale = 0f; // Pause jika tidak ada manager
             }
             gameOverShown = true;
         }
         
-        // Method 3: Find any game over canvas in scene
+        // Method 3: Cari canvas game over di scene
         if (!gameOverShown)
         {
+            Debug.Log("🔍 Searching for game over canvas...");
             Canvas[] canvases = FindObjectsOfType<Canvas>();
             foreach (Canvas canvas in canvases)
             {
@@ -434,7 +440,7 @@ public class PlayerHealth : MonoBehaviour
                     canvas.gameObject.SetActive(true);
                     Time.timeScale = 0f;
                     gameOverShown = true;
-                    Debug.Log($"Found and activated game over canvas: {canvas.name}");
+                    Debug.Log($"✅ Found and activated canvas: {canvas.name}");
                     break;
                 }
             }
@@ -442,7 +448,11 @@ public class PlayerHealth : MonoBehaviour
         
         if (!gameOverShown)
         {
-            Debug.LogError("No game over system found! Please assign gameOverCanvas or add GameOverManager to scene.");
+            Debug.LogError("❌ CRITICAL ERROR: No game over system found!");
+        }
+        else
+        {
+            Debug.Log("✅ Game over displayed successfully!");
         }
     }
     
