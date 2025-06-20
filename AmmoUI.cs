@@ -3,26 +3,40 @@ using UnityEngine.UI;
 
 public class AmmoUI : MonoBehaviour
 {
-    [Header("UI References")]
+    [Header("Ammo Display Components")]
     public Text ammoText;
-    public Slider ammoSlider;
-    public Text reloadText;
-    public Image reloadFill;
+    public Slider ammoSlider; // Optional
+    public Image reloadProgress; // Optional reload progress bar
     
-    [Header("Colors")]
-    public Color normalColor = Color.white;
+    [Header("Ammo Display Settings")]
+    public Color normalAmmoColor = Color.white;
     public Color lowAmmoColor = Color.red;
     public Color reloadingColor = Color.yellow;
+    public int lowAmmoThreshold = 5;
     
     private PlayerController2D playerController;
     
     void Start()
     {
-        playerController = FindObjectOfType<PlayerController2D>();
-        
-        if (reloadText != null)
+        // Cari player controller
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        if (player != null)
         {
-            reloadText.gameObject.SetActive(false);
+            playerController = player.GetComponent<PlayerController2D>();
+            if (playerController == null)
+            {
+                Debug.LogWarning("PlayerController2D tidak ditemukan pada Player!");
+            }
+        }
+        else
+        {
+            Debug.LogWarning("Player dengan tag 'Player' tidak ditemukan!");
+        }
+        
+        // Hide reload progress initially
+        if (reloadProgress != null)
+        {
+            reloadProgress.gameObject.SetActive(false);
         }
     }
     
@@ -31,31 +45,40 @@ public class AmmoUI : MonoBehaviour
         if (playerController == null) return;
         
         UpdateAmmoDisplay();
-        UpdateReloadDisplay();
+        UpdateReloadProgress();
     }
     
     void UpdateAmmoDisplay()
     {
         int currentAmmo = playerController.GetCurrentAmmo();
         int maxAmmo = playerController.GetMaxAmmo();
+        bool isReloading = playerController.IsReloading();
         
-        // Update text
+        // Update ammo text
         if (ammoText != null)
         {
-            ammoText.text = $"{currentAmmo}/{maxAmmo}";
-            
-            // Change color based on ammo
-            if (currentAmmo <= maxAmmo * 0.3f)
+            if (isReloading)
             {
-                ammoText.color = lowAmmoColor;
+                ammoText.text = "RELOADING...";
+                ammoText.color = reloadingColor;
             }
             else
             {
-                ammoText.color = normalColor;
+                ammoText.text = $"{currentAmmo}/{maxAmmo}";
+                
+                // Change color based on ammo count
+                if (currentAmmo <= lowAmmoThreshold)
+                {
+                    ammoText.color = lowAmmoColor;
+                }
+                else
+                {
+                    ammoText.color = normalAmmoColor;
+                }
             }
         }
         
-        // Update slider
+        // Update ammo slider
         if (ammoSlider != null)
         {
             ammoSlider.maxValue = maxAmmo;
@@ -63,20 +86,21 @@ public class AmmoUI : MonoBehaviour
         }
     }
     
-    void UpdateReloadDisplay()
+    void UpdateReloadProgress()
     {
+        if (reloadProgress == null || playerController == null) return;
+        
         bool isReloading = playerController.IsReloading();
         
-        if (reloadText != null)
+        if (isReloading)
         {
-            reloadText.gameObject.SetActive(isReloading);
-            if (isReloading)
-            {
-                reloadText.text = "RELOADING...";
-                reloadText.color = reloadingColor;
-            }
+            reloadProgress.gameObject.SetActive(true);
+            // Ini memerlukan modification pada PlayerController2D untuk expose reload progress
+            // Untuk sementara, kita bisa menggunakan animasi sederhana
         }
-        
-        // You can add reload progress bar here if needed
+        else
+        {
+            reloadProgress.gameObject.SetActive(false);
+        }
     }
 }

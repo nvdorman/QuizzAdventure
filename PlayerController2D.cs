@@ -16,6 +16,10 @@ public class PlayerController2D : MonoBehaviour
     public int maxAmmo = 30;
     public float reloadTime = 2f;
     
+    [Header("Shooting Modes")]
+    public bool autoFire = false; // Hold to shoot continuously
+    public bool singleFire = true; // Click to shoot once
+    
     [Header("Shooting Effects")]
     public GameObject muzzleFlash;
     public AudioClip shootSound;
@@ -39,8 +43,10 @@ public class PlayerController2D : MonoBehaviour
     private float nextFireTime = 0f;
     private int currentAmmo;
     private bool isReloading = false;
+    private float reloadProgress = 0f; // Progress untuk UI
     private Vector2 mousePosition;
     private Vector2 shootDirection;
+    private bool lastMouseButtonState = false; // Untuk single fire mode
 
     // Animation States
     private readonly int idleHash = Animator.StringToHash("Idle");
@@ -82,7 +88,6 @@ public class PlayerController2D : MonoBehaviour
         // Ensure default sprite is visible (index 0)
         if (spriteRenderer != null && spriteRenderer.sprite == null)
         {
-            // Try to get the first sprite from animator if available
             if (animator != null)
             {
                 animator.Play(idleHash);
@@ -123,23 +128,52 @@ public class PlayerController2D : MonoBehaviour
     {
         if (isReloading) return;
         
-        // Shooting with left mouse button
-        if (Input.GetMouseButton(0) && Time.time >= nextFireTime)
+        bool currentMouseButton = Input.GetMouseButton(0);
+        bool mouseButtonDown = Input.GetMouseButtonDown(0);
+        
+        // Single fire mode: Only shoot on mouse button down
+        if (singleFire)
         {
-            if (currentAmmo > 0)
+            if (mouseButtonDown && Time.time >= nextFireTime)
             {
-                Shoot();
-                nextFireTime = Time.time + fireRate;
-            }
-            else
-            {
-                // Play empty clip sound
-                if (audioSource != null && emptyClipSound != null)
+                if (currentAmmo > 0)
                 {
-                    audioSource.PlayOneShot(emptyClipSound);
+                    Shoot();
+                    nextFireTime = Time.time + fireRate;
                 }
-                StartReload();
+                else
+                {
+                    PlayEmptyClipSound();
+                    StartReload();
+                }
             }
+        }
+        // Auto fire mode: Hold to shoot continuously
+        else if (autoFire)
+        {
+            if (currentMouseButton && Time.time >= nextFireTime)
+            {
+                if (currentAmmo > 0)
+                {
+                    Shoot();
+                    nextFireTime = Time.time + fireRate;
+                }
+                else
+                {
+                    PlayEmptyClipSound();
+                    StartReload();
+                }
+            }
+        }
+        
+        lastMouseButtonState = currentMouseButton;
+    }
+    
+    void PlayEmptyClipSound()
+    {
+        if (audioSource != null && emptyClipSound != null)
+        {
+            audioSource.PlayOneShot(emptyClipSound);
         }
     }
     
@@ -206,7 +240,7 @@ public class PlayerController2D : MonoBehaviour
             animator.Play(shootHash);
         }
         
-        Debug.Log($"Shot fired! Ammo: {currentAmmo}/{maxAmmo}");
+        Debug.Log($"💥 Shot fired! Ammo: {currentAmmo}/{maxAmmo}");
     }
     
     System.Collections.IEnumerator ShowMuzzleFlash()
@@ -229,6 +263,7 @@ public class PlayerController2D : MonoBehaviour
     System.Collections.IEnumerator ReloadCoroutine()
     {
         isReloading = true;
+        reloadProgress = 0f;
         
         // Play reload sound
         if (audioSource != null && reloadSound != null)
@@ -236,31 +271,35 @@ public class PlayerController2D : MonoBehaviour
             audioSource.PlayOneShot(reloadSound);
         }
         
-        Debug.Log("Reloading...");
+        Debug.Log("🔄 Reloading...");
         
-        yield return new WaitForSeconds(reloadTime);
+        float elapsedTime = 0f;
+        while (elapsedTime < reloadTime)
+        {
+            elapsedTime += Time.deltaTime;
+            reloadProgress = elapsedTime / reloadTime;
+            yield return null;
+        }
         
         currentAmmo = maxAmmo;
         isReloading = false;
+        reloadProgress = 1f;
         
-        Debug.Log("Reload complete!");
+        Debug.Log("✅ Reload complete!");
     }
 
     void HandleMovement()
     {
         rb.velocity = new Vector2(movementInput * moveSpeed, rb.velocity.y);
         
-        // FIXED: Proper sprite flipping based on movement direction
         if (spriteRenderer != null)
         {
             if (movementInput != 0)
             {
-                // Flip based on movement direction
                 spriteRenderer.flipX = movementInput < 0;
             }
             else if (playerCamera != null)
             {
-                // Flip based on mouse position when not moving
                 Vector2 mousePos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
                 spriteRenderer.flipX = mousePos.x < transform.position.x;
             }
@@ -298,6 +337,8 @@ public class PlayerController2D : MonoBehaviour
 
     void UpdateAnimation()
     {
+        if (animator == null) return;
+        
         if (!isGrounded)
         {
             animator.Play(jumpHash);
@@ -326,4 +367,18 @@ public class PlayerController2D : MonoBehaviour
     public int GetCurrentAmmo() { return currentAmmo; }
     public int GetMaxAmmo() { return maxAmmo; }
     public bool IsReloading() { return isReloading; }
+    public float GetReloadProgress() { return reloadProgress; }
+    
+    // Public methods untuk switch shooting mode
+    public void SetAutoFire(bool auto)
+    {
+        autoFire = auto;
+        singleFire = !auto;
+    }
+    
+    public void SetSingleFire(bool single)
+    {
+        singleFire = single;
+        autoFire = !single;
+    }
 }
