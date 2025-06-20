@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class PlayerController2D : MonoBehaviour
 {
@@ -10,7 +11,7 @@ public class PlayerController2D : MonoBehaviour
     public GameObject bulletPrefab;
     public Transform firePoint;
     public float bulletSpeed = 15f;
-    public int bulletDamage = 1; // Changed to int
+    public int bulletDamage = 1;
     public float fireRate = 0.3f;
     public int maxAmmo = 30;
     public float reloadTime = 2f;
@@ -77,6 +78,16 @@ public class PlayerController2D : MonoBehaviour
             firePointObj.transform.localPosition = new Vector3(0.5f, 0, 0);
             firePoint = firePointObj.transform;
         }
+        
+        // Ensure default sprite is visible (index 0)
+        if (spriteRenderer != null && spriteRenderer.sprite == null)
+        {
+            // Try to get the first sprite from animator if available
+            if (animator != null)
+            {
+                animator.Play(idleHash);
+            }
+        }
     }
 
     void Update()
@@ -134,30 +145,21 @@ public class PlayerController2D : MonoBehaviour
     
     void UpdateAiming()
     {
-        // Get mouse position in world space
         if (playerCamera != null)
         {
             mousePosition = playerCamera.ScreenToWorldPoint(Input.mousePosition);
             shootDirection = (mousePosition - (Vector2)transform.position).normalized;
             
-            // Update fire point position based on aim direction
             if (firePoint != null)
             {
                 float angle = Mathf.Atan2(shootDirection.y, shootDirection.x) * Mathf.Rad2Deg;
                 firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
                 
-                // Position fire point at edge of player
                 firePoint.localPosition = new Vector3(
                     Mathf.Abs(shootDirection.x) * 0.5f, 
                     shootDirection.y * 0.3f, 
                     0
                 );
-            }
-            
-            // Flip player sprite based on mouse position
-            if (spriteRenderer != null)
-            {
-                spriteRenderer.flipX = mousePosition.x < transform.position.x;
             }
         }
     }
@@ -174,7 +176,7 @@ public class PlayerController2D : MonoBehaviour
         
         if (bulletScript != null)
         {
-            bulletScript.Initialize(shootDirection, true, bulletDamage); // Now using int
+            bulletScript.Initialize(shootDirection, true, bulletDamage);
         }
         else
         {
@@ -247,6 +249,22 @@ public class PlayerController2D : MonoBehaviour
     void HandleMovement()
     {
         rb.velocity = new Vector2(movementInput * moveSpeed, rb.velocity.y);
+        
+        // FIXED: Proper sprite flipping based on movement direction
+        if (spriteRenderer != null)
+        {
+            if (movementInput != 0)
+            {
+                // Flip based on movement direction
+                spriteRenderer.flipX = movementInput < 0;
+            }
+            else if (playerCamera != null)
+            {
+                // Flip based on mouse position when not moving
+                Vector2 mousePos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
+                spriteRenderer.flipX = mousePos.x < transform.position.x;
+            }
+        }
     }
 
     void OnCollisionEnter2D(Collision2D collision)

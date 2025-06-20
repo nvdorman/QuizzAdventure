@@ -17,6 +17,10 @@ public class EnemyAI : MonoBehaviour
     [SerializeField] private float animationSpeed = 0.5f;
     [SerializeField] private bool loopAnimations = true;
     
+    [Header("Barnacle Specific Settings")]
+    public bool isBarnacle = false;
+    public bool canShootOnly = false;
+    
     [Header("Detection Settings")]
     public float detectionRange = 5f;
     public float attackRange = 1.5f;
@@ -33,14 +37,9 @@ public class EnemyAI : MonoBehaviour
     [Header("Shooting Settings")]
     public GameObject bulletPrefab;
     public Transform firePoint;
-    public float shootCooldown = 2f;
+    public float bulletSpeed = 10f;
     public int bulletDamage = 1;
-    public float aimAccuracy = 0.8f;
-    public bool canShoot = true;
-    
-    [Header("Shooting Effects")]
-    public GameObject muzzleFlash;
-    public AudioClip shootSound;
+    public float shootCooldown = 2f;
     
     [Header("Patrol Settings")]
     public Transform[] patrolPoints;
@@ -48,19 +47,22 @@ public class EnemyAI : MonoBehaviour
     public bool randomPatrol = false;
     
     [Header("Combat Settings")]
-    public float attackDamage = 1f;
-    public float attackCooldown = 1.5f;
-    public float knockbackForce = 5f;
+    public float attackCooldown = 1f;
+    public int attackDamage = 1;
+    public int maxHealth = 3;
     
-    [Header("AI Behavior")]
-    public bool canPatrol = true;
+    [Header("Abilities")]
     public bool canChase = true;
     public bool canAttack = true;
+    public bool canShoot = false;
+    public bool canPatrol = true;
     public bool returnToPatrolAfterLose = true;
     
-    [Header("Visual Effects")]
+    [Header("Effects")]
     public GameObject alertEffect;
     public GameObject attackEffect;
+    
+    [Header("Visual Settings")]
     public Color normalColor = Color.white;
     public Color alertColor = Color.yellow;
     public Color chaseColor = Color.red;
@@ -143,12 +145,14 @@ public class EnemyAI : MonoBehaviour
     private float losePlayerTimer = 0f;
     private Vector2 lastKnownPlayerPosition;
     private bool isDead = false;
+    private int currentHealth;
     
     void Start()
     {
         InitializeComponents();
         SetupEnemySprites();
         InitializeAI();
+        currentHealth = maxHealth;
     }
     
     void InitializeComponents()
@@ -183,22 +187,50 @@ public class EnemyAI : MonoBehaviour
     
     void SetupEnemySprites()
     {
-        // Auto-setup sprites based on enemy type
         string baseName = GetEnemyBaseName();
         
-        if (idleSprites.Length == 0)
+        // Special handling for Barnacle
+        if (enemyType == EnemyType.Barnacle)
         {
-            idleSprites = LoadSpritesForAnimation(baseName, "rest");
+            isBarnacle = true;
+            canShootOnly = true;
+            canChase = false;
+            canPatrol = false;
+            canShoot = true;
+            
+            // Setup animasi khusus barnacle
+            if (idleSprites.Length == 0)
+            {
+                idleSprites = LoadSpritesForAnimation(baseName, "rest");
+            }
+            
+            if (walkSprites.Length == 0)
+            {
+                walkSprites = LoadSpritesForAnimation(baseName, "move");
+            }
+            
+            if (attackSprites.Length == 0)
+            {
+                attackSprites = LoadSpritesForAnimation(baseName, "attack");
+            }
         }
-        
-        if (walkSprites.Length == 0)
+        else
         {
-            walkSprites = LoadSpritesForAnimation(baseName, "walk");
-        }
-        
-        if (attackSprites.Length == 0)
-        {
-            attackSprites = LoadSpritesForAnimation(baseName, "attack");
+            // Setup normal untuk enemy lain
+            if (idleSprites.Length == 0)
+            {
+                idleSprites = LoadSpritesForAnimation(baseName, "rest");
+            }
+            
+            if (walkSprites.Length == 0)
+            {
+                walkSprites = LoadSpritesForAnimation(baseName, "walk");
+            }
+            
+            if (attackSprites.Length == 0)
+            {
+                attackSprites = LoadSpritesForAnimation(baseName, "attack");
+            }
         }
         
         if (alertSprites.Length == 0)
@@ -211,7 +243,6 @@ public class EnemyAI : MonoBehaviour
             deathSprites = LoadSpritesForAnimation(baseName, "flat");
         }
         
-        // Set initial sprite
         PlayAnimation(AnimationState.Idle);
     }
     
@@ -243,39 +274,83 @@ public class EnemyAI : MonoBehaviour
     {
         System.Collections.Generic.List<Sprite> sprites = new System.Collections.Generic.List<Sprite>();
         
-        // Try to load sprites based on naming convention
         switch (animationType)
         {
             case "rest":
-                Sprite restSprite = Resources.Load<Sprite>(baseName + "_rest");
+                // Cari di folder Enemies
+                Sprite restSprite = Resources.Load<Sprite>("Enemies/" + baseName + "_rest");
+                if (restSprite == null)
+                {
+                    // Fallback: cari di root Resources
+                    restSprite = Resources.Load<Sprite>(baseName + "_rest");
+                }
                 if (restSprite != null) sprites.Add(restSprite);
                 break;
                 
             case "walk":
-                Sprite walkA = Resources.Load<Sprite>(baseName + "_walk_a");
-                Sprite walkB = Resources.Load<Sprite>(baseName + "_walk_b");
-                if (walkA != null) sprites.Add(walkA);
-                if (walkB != null) sprites.Add(walkB);
+                // FIXED: Renamed variables to avoid scope conflict
+                Sprite walkSpriteA = Resources.Load<Sprite>("Enemies/" + baseName + "_walk_a");
+                Sprite walkSpriteB = Resources.Load<Sprite>("Enemies/" + baseName + "_walk_b");
                 
-                // For movement-based enemies
-                Sprite moveA = Resources.Load<Sprite>(baseName + "_move_a");
-                Sprite moveB = Resources.Load<Sprite>(baseName + "_move_b");
+                // Fallback ke root jika tidak ada di Enemies folder
+                if (walkSpriteA == null) walkSpriteA = Resources.Load<Sprite>(baseName + "_walk_a");
+                if (walkSpriteB == null) walkSpriteB = Resources.Load<Sprite>(baseName + "_walk_b");
+                
+                if (walkSpriteA != null) sprites.Add(walkSpriteA);
+                if (walkSpriteB != null) sprites.Add(walkSpriteB);
+                
+                // Fallback ke move jika walk tidak ada
+                if (sprites.Count == 0)
+                {
+                    Sprite moveSpriteA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
+                    Sprite moveSpriteB = Resources.Load<Sprite>("Enemies/" + baseName + "_move_b");
+                    
+                    if (moveSpriteA == null) moveSpriteA = Resources.Load<Sprite>(baseName + "_move_a");
+                    if (moveSpriteB == null) moveSpriteB = Resources.Load<Sprite>(baseName + "_move_b");
+                    
+                    if (moveSpriteA != null) sprites.Add(moveSpriteA);
+                    if (moveSpriteB != null) sprites.Add(moveSpriteB);
+                }
+                break;
+                
+            case "move":
+                // Khusus untuk barnacle dan enemy yang menggunakan move animation
+                Sprite moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_a");
+                Sprite moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_b");
+                
+                if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_a");
+                if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_b");
+                
                 if (moveA != null) sprites.Add(moveA);
                 if (moveB != null) sprites.Add(moveB);
                 
-                // For swimming fish
-                Sprite swimA = Resources.Load<Sprite>(baseName + "_swim_a");
-                Sprite swimB = Resources.Load<Sprite>(baseName + "_swim_b");
-                if (swimA != null) sprites.Add(swimA);
-                if (swimB != null) sprites.Add(swimB);
+                // Alternatif naming
+                if (sprites.Count == 0)
+                {
+                    moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
+                    moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_move_b");
+                    
+                    if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_move_a");
+                    if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_move_b");
+                    
+                    if (moveA != null) sprites.Add(moveA);
+                    if (moveB != null) sprites.Add(moveB);
+                }
                 break;
                 
             case "attack":
-                Sprite attackA = Resources.Load<Sprite>(baseName + "_attack_a");
-                Sprite attackB = Resources.Load<Sprite>(baseName + "_attack_b");
-                Sprite attackRest = Resources.Load<Sprite>(baseName + "_attack_rest");
-                Sprite jump = Resources.Load<Sprite>(baseName + "_jump");
-                Sprite fly = Resources.Load<Sprite>(baseName + "_fly");
+                Sprite attackA = Resources.Load<Sprite>("Enemies/" + baseName + "_attack_a");
+                Sprite attackB = Resources.Load<Sprite>("Enemies/" + baseName + "_attack_b");
+                Sprite attackRest = Resources.Load<Sprite>("Enemies/" + baseName + "_attack_rest");
+                Sprite jump = Resources.Load<Sprite>("Enemies/" + baseName + "_jump");
+                Sprite fly = Resources.Load<Sprite>("Enemies/" + baseName + "_fly");
+                
+                // Fallback
+                if (attackA == null) attackA = Resources.Load<Sprite>(baseName + "_attack_a");
+                if (attackB == null) attackB = Resources.Load<Sprite>(baseName + "_attack_b");
+                if (attackRest == null) attackRest = Resources.Load<Sprite>(baseName + "_attack_rest");
+                if (jump == null) jump = Resources.Load<Sprite>(baseName + "_jump");
+                if (fly == null) fly = Resources.Load<Sprite>(baseName + "_fly");
                 
                 if (attackA != null) sprites.Add(attackA);
                 if (attackB != null) sprites.Add(attackB);
@@ -285,17 +360,25 @@ public class EnemyAI : MonoBehaviour
                 break;
                 
             case "idle":
-                Sprite idle = Resources.Load<Sprite>(baseName + "_idle");
+                Sprite idle = Resources.Load<Sprite>("Enemies/" + baseName + "_idle");
+                if (idle == null) idle = Resources.Load<Sprite>(baseName + "_idle");
                 if (idle != null) sprites.Add(idle);
                 break;
                 
             case "flat":
-                Sprite flat = Resources.Load<Sprite>(baseName + "_flat");
-                Sprite shell = Resources.Load<Sprite>(baseName + "_shell");
+                Sprite flat = Resources.Load<Sprite>("Enemies/" + baseName + "_flat");
+                Sprite shell = Resources.Load<Sprite>("Enemies/" + baseName + "_shell");
+                
+                if (flat == null) flat = Resources.Load<Sprite>(baseName + "_flat");
+                if (shell == null) shell = Resources.Load<Sprite>(baseName + "_shell");
+                
                 if (flat != null) sprites.Add(flat);
                 if (shell != null) sprites.Add(shell);
                 break;
         }
+        
+        // Debug log untuk troubleshooting
+        Debug.Log($"Loaded {sprites.Count} sprites for {baseName} - {animationType}");
         
         return sprites.ToArray();
     }
@@ -411,7 +494,6 @@ public class EnemyAI : MonoBehaviour
         }
     }
     
-    // Rest of the AI logic (same as before but with animation calls)
     void DetectPlayer()
     {
         float distanceToPlayer = Vector2.Distance(transform.position, player.position);
@@ -484,9 +566,16 @@ public class EnemyAI : MonoBehaviour
         rb.velocity = Vector2.zero;
         PlayAnimation(AnimationState.Idle);
         
-        if (playerDetected && canChase)
+        if (playerDetected)
         {
-            ChangeState(EnemyState.Chase);
+            if (isBarnacle && canShoot)
+            {
+                ChangeState(EnemyState.Shoot);
+            }
+            else if (canChase)
+            {
+                ChangeState(EnemyState.Chase);
+            }
         }
         else if (canPatrol && patrolPoints.Length > 0)
         {
@@ -542,9 +631,16 @@ public class EnemyAI : MonoBehaviour
         waitTimer -= Time.deltaTime;
         if (waitTimer <= 0f)
         {
-            if (playerDetected && canChase)
+            if (playerDetected)
             {
-                ChangeState(EnemyState.Chase);
+                if (isBarnacle && canShoot)
+                {
+                    ChangeState(EnemyState.Shoot);
+                }
+                else if (canChase)
+                {
+                    ChangeState(EnemyState.Chase);
+                }
             }
             else
             {
@@ -555,7 +651,14 @@ public class EnemyAI : MonoBehaviour
     
     void HandleChaseState()
     {
-        PlayAnimation(AnimationState.Walk);
+        if (walkSprites.Length > 0)
+        {
+            PlayAnimation(AnimationState.Walk);
+        }
+        else
+        {
+            PlayAnimation(AnimationState.Idle);
+        }
         
         if (!playerDetected)
         {
@@ -612,15 +715,31 @@ public class EnemyAI : MonoBehaviour
     void HandleShootState()
     {
         rb.velocity = Vector2.zero;
-        PlayAnimation(AnimationState.Attack);
+        
+        // Untuk barnacle, gunakan walk animation saat menembak
+        if (isBarnacle && walkSprites.Length > 0)
+        {
+            PlayAnimation(AnimationState.Walk);
+        }
+        else
+        {
+            PlayAnimation(AnimationState.Attack);
+        }
         
         if (!playerDetected)
         {
-            ChangeState(EnemyState.Chase);
+            if (isBarnacle)
+            {
+                ChangeState(EnemyState.Idle);
+            }
+            else
+            {
+                ChangeState(EnemyState.Chase);
+            }
             return;
         }
         
-        if (playerInRange && canAttack)
+        if (playerInRange && canAttack && !isBarnacle)
         {
             ChangeState(EnemyState.Attack);
             return;
@@ -628,7 +747,14 @@ public class EnemyAI : MonoBehaviour
         
         if (!playerInShootRange)
         {
-            ChangeState(EnemyState.Chase);
+            if (!isBarnacle)
+            {
+                ChangeState(EnemyState.Chase);
+            }
+            else
+            {
+                ChangeState(EnemyState.Idle);
+            }
             return;
         }
         
@@ -640,7 +766,14 @@ public class EnemyAI : MonoBehaviour
     
     void HandleReturnState()
     {
-        PlayAnimation(AnimationState.Walk);
+        if (walkSprites.Length > 0)
+        {
+            PlayAnimation(AnimationState.Walk);
+        }
+        else
+        {
+            PlayAnimation(AnimationState.Idle);
+        }
         
         if (playerDetected && canChase)
         {
@@ -676,82 +809,6 @@ public class EnemyAI : MonoBehaviour
         PlayAnimation(AnimationState.Death);
     }
     
-    // ... (include all other methods from previous script)
-    
-    bool HasClearShot()
-    {
-        if (player == null) return false;
-        
-        Vector2 directionToPlayer = (player.position - transform.position).normalized;
-        RaycastHit2D hit = Physics2D.Raycast(transform.position, directionToPlayer, shootRange, obstacleLayer);
-        
-        return hit.collider == null || hit.collider.CompareTag("Player");
-    }
-    
-    void ShootAtPlayer()
-    {
-        if (bulletPrefab == null || firePoint == null || player == null) return;
-        
-        lastShootTime = Time.time;
-        
-        Vector2 perfectAim = (player.position - firePoint.position).normalized;
-        Vector2 inaccuracy = Random.insideUnitCircle * (1f - aimAccuracy);
-        Vector2 shootDirection = (perfectAim + inaccuracy).normalized;
-        
-        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
-        Bullet bulletScript = bullet.GetComponent<Bullet>();
-        
-        if (bulletScript != null)
-        {
-            bulletScript.Initialize(shootDirection, false, bulletDamage);
-        }
-        else
-        {
-            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
-            if (bulletRb != null)
-            {
-                bulletRb.velocity = shootDirection * 10f;
-            }
-        }
-        
-        PlaySound(shootSound);
-        
-        if (muzzleFlash != null)
-        {
-            StartCoroutine(ShowMuzzleFlash());
-        }
-        
-        Debug.Log("Enemy shot at player!");
-    }
-    
-    IEnumerator ShowMuzzleFlash()
-    {
-        if (muzzleFlash != null)
-        {
-            GameObject flash = Instantiate(muzzleFlash, firePoint.position, firePoint.rotation);
-            yield return new WaitForSeconds(0.1f);
-            if (flash != null) Destroy(flash);
-        }
-    }
-    
-    void UpdateAiming()
-    {
-        if (player == null || firePoint == null) return;
-        
-        if (currentState == EnemyState.Shoot || currentState == EnemyState.Chase)
-        {
-            Vector2 directionToPlayer = (player.position - transform.position).normalized;
-            float angle = Mathf.Atan2(directionToPlayer.y, directionToPlayer.x) * Mathf.Rad2Deg;
-            firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
-            
-            firePoint.localPosition = new Vector3(
-                Mathf.Abs(directionToPlayer.x) * 0.5f, 
-                directionToPlayer.y * 0.3f, 
-                0
-            );
-        }
-    }
-    
     void MoveTowardsTarget(Vector2 target, float speed)
     {
         Vector2 direction = (target - (Vector2)transform.position).normalized;
@@ -775,35 +832,67 @@ public class EnemyAI : MonoBehaviour
         }
     }
     
-    void PerformAttack()
+    bool HasClearShot()
     {
-        lastAttackTime = Time.time;
+        if (player == null) return false;
+        
+        Vector2 directionToPlayer = (player.position - transform.position).normalized;
+        RaycastHit2D hit = Physics2D.Raycast(transform.position, directionToPlayer, shootRange, obstacleLayer);
+        
+        return hit.collider == null || hit.collider.CompareTag("Player");
+    }
+    
+    void ShootAtPlayer()
+    {
+        if (bulletPrefab == null || firePoint == null || player == null) return;
+        
+        lastShootTime = Time.time;
+        
+        Vector2 direction = (player.position - firePoint.position).normalized;
+        
+        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
+        Bullet bulletScript = bullet.GetComponent<Bullet>();
+        
+        if (bulletScript != null)
+        {
+            bulletScript.Initialize(direction, false, bulletDamage);
+        }
+        else
+        {
+            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
+            if (bulletRb != null)
+            {
+                bulletRb.velocity = direction * bulletSpeed;
+            }
+        }
         
         PlaySound(attackSound);
+    }
+    
+    void PerformAttack()
+    {
+        if (player == null) return;
         
-        if (attackEffect != null)
+        lastAttackTime = Time.time;
+        
+        // Damage player
+        HealthSystem playerHealth = player.GetComponent<HealthSystem>();
+        if (playerHealth != null)
         {
-            StartCoroutine(ShowAttackEffect());
+            playerHealth.TakeDamage(attackDamage);
         }
         
-        PlayerController2D playerController = player.GetComponent<PlayerController2D>();
-        if (playerController != null)
-        {
-            Vector2 knockbackDirection = (player.position - transform.position).normalized;
-            Rigidbody2D playerRb = player.GetComponent<Rigidbody2D>();
-            if (playerRb != null)
-            {
-                playerRb.AddForce(knockbackDirection * knockbackForce, ForceMode2D.Impulse);
-            }
-            
-            PlayerHealth playerHealth = player.GetComponent<PlayerHealth>();
-            if (playerHealth != null)
-            {
-                playerHealth.TakeDamage(1);
-            }
-            
-            Debug.Log("Player hit by enemy melee attack!");
-        }
+        PlaySound(attackSound);
+        StartCoroutine(ShowAttackEffect());
+    }
+    
+    void UpdateAiming()
+    {
+        if (firePoint == null || player == null) return;
+        
+        Vector2 direction = (player.position - transform.position).normalized;
+        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+        firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
     }
     
     IEnumerator ShowAttackEffect()
@@ -892,6 +981,47 @@ public class EnemyAI : MonoBehaviour
         }
     }
     
+    public void TakeDamage(int damage)
+    {
+        if (isDead) return;
+        
+        currentHealth -= damage;
+        
+        if (currentHealth <= 0)
+        {
+            Die();
+        }
+        else
+        {
+            // Flash red when damaged
+            StartCoroutine(FlashRed());
+        }
+    }
+    
+    IEnumerator FlashRed()
+    {
+        if (spriteRenderer != null)
+        {
+            Color original = spriteRenderer.color;
+            spriteRenderer.color = Color.red;
+            yield return new WaitForSeconds(0.1f);
+            spriteRenderer.color = original;
+        }
+    }
+    
+    void Die()
+    {
+        isDead = true;
+        ChangeState(EnemyState.Death);
+        
+        if (enemyCollider != null)
+        {
+            enemyCollider.enabled = false;
+        }
+        
+        Destroy(gameObject, 2f);
+    }
+    
     public void Stun(float duration)
     {
         StartCoroutine(StunCoroutine(duration));
@@ -904,74 +1034,9 @@ public class EnemyAI : MonoBehaviour
         
         yield return new WaitForSeconds(duration);
         
-        ChangeState(previousState);
-    }
-    
-    public void Die()
-    {
-        isDead = true;
-        ChangeState(EnemyState.Death);
-        
-        // Disable AI components
-        if (enemyCollider != null)
+        if (!isDead)
         {
-            enemyCollider.enabled = false;
-        }
-        
-        // Destroy after death animation
-        Destroy(gameObject, 2f);
-    }
-    
-    public void EnableAI()
-    {
-        enabled = true;
-    }
-    
-    public void DisableAI()
-    {
-        enabled = false;
-        rb.velocity = Vector2.zero;
-    }
-    
-    public EnemyState GetCurrentState()
-    {
-        return currentState;
-    }
-    
-    // Unity 2022 Compatible Gizmos
-    void OnDrawGizmosSelected()
-    {
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.position, detectionRange);
-        
-        Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, attackRange);
-        
-        Gizmos.color = new Color(1f, 0.5f, 0f);
-        Gizmos.DrawWireSphere(transform.position, shootRange);
-        
-        Gizmos.color = Color.blue;
-        Gizmos.DrawWireSphere(transform.position, losePlayerRange);
-        
-        if (patrolPoints != null && patrolPoints.Length > 0)
-        {
-            Gizmos.color = Color.green;
-            for (int i = 0; i < patrolPoints.Length; i++)
-            {
-                if (patrolPoints[i] != null)
-                {
-                    Gizmos.DrawWireCube(patrolPoints[i].position, Vector3.one * 0.5f);
-                    
-                    if (i < patrolPoints.Length - 1 && patrolPoints[i + 1] != null)
-                    {
-                        Gizmos.DrawLine(patrolPoints[i].position, patrolPoints[i + 1].position);
-                    }
-                    else if (i == patrolPoints.Length - 1 && patrolPoints[0] != null)
-                    {
-                        Gizmos.DrawLine(patrolPoints[i].position, patrolPoints[0].position);
-                    }
-                }
-            }
+            ChangeState(previousState);
         }
     }
 }

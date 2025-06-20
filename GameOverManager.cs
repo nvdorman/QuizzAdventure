@@ -7,6 +7,7 @@ public class GameOverManager : MonoBehaviour
     [Header("UI References")]
     public Button restartButton;
     public Button exitButton;
+    public GameObject gameOverPanel; // Add this reference
     
     [Header("Scene Settings")]
     public string mainMenuSceneName = "MainMenu";
@@ -40,16 +41,28 @@ public class GameOverManager : MonoBehaviour
             exitButton.onClick.AddListener(ExitToMainMenu);
         }
         
-        // JANGAN pause game di Start() - hanya pause saat game over
-        // Time.timeScale = 0f; // HAPUS BARIS INI
+        // Hide game over panel initially
+        if (gameOverPanel != null)
+        {
+            gameOverPanel.SetActive(false);
+        }
+        
+        // Don't pause game at start
+        Time.timeScale = 1f;
     }
     
-    // Tambahkan method ini untuk dipanggil saat game over
+    // Method yang dipanggil dari HealthSystem
     public void ActivateGameOver()
     {
         if (!gameOverActivated)
         {
             gameOverActivated = true;
+            
+            // Show game over panel
+            if (gameOverPanel != null)
+            {
+                gameOverPanel.SetActive(true);
+            }
             
             // Play game over sound
             if (audioSource != null && gameOverSound != null)
@@ -57,9 +70,17 @@ public class GameOverManager : MonoBehaviour
                 audioSource.PlayOneShot(gameOverSound);
             }
             
-            // Pause game hanya saat game over benar-benar terjadi
+            // Pause game
             Time.timeScale = 0f;
+            
+            Debug.Log("Game Over Activated!");
         }
+    }
+    
+    // Alternative method name for compatibility
+    public void GameOver()
+    {
+        ActivateGameOver();
     }
     
     public void RestartGame()
