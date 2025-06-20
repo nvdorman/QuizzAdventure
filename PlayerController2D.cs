@@ -113,8 +113,9 @@ public class PlayerController2D : MonoBehaviour
     private bool isReloading = false;
     private float reloadProgress = 0f;
     private Vector2 mousePosition;
-    private Vector2 shootDirection;
+    private Vector2 shootDirection = Vector2.right; // Initialize with default direction
     private bool lastMouseButtonState = false;
+    private bool shootingEnabled = false; // Add flag to control shooting
 
     // Animation States
     private const string IDLE = "Idle";
@@ -139,6 +140,16 @@ public class PlayerController2D : MonoBehaviour
             originalColor = spriteRenderer.color;
             UpdateColliderToFitSprite(currentCharacterSprites.idle);
         }
+        
+        // Enable shooting after a short delay to prevent accidental shots on start
+        StartCoroutine(EnableShootingAfterDelay());
+    }
+    
+    IEnumerator EnableShootingAfterDelay()
+    {
+        yield return new WaitForSeconds(0.1f); // Small delay
+        shootingEnabled = true;
+        Debug.Log("🔫 Shooting enabled!");
     }
 
     void InitializeComponents()
@@ -236,6 +247,7 @@ public class PlayerController2D : MonoBehaviour
         lastGroundedTime = Time.time;
         currentSlowMotionFactor = 1f;
         isInSlowMotion = false;
+        shootingEnabled = false; // Start with shooting disabled
     }
 
     void UpdateColliderToFitSprite(Sprite sprite)
@@ -260,9 +272,9 @@ public class PlayerController2D : MonoBehaviour
     void Update()
     {
         HandleInput();
+        UpdateAiming(); // Move aiming before shooting
         HandleShooting();
         UpdateAnimation();
-        UpdateAiming();
         CheckGrounded();
     }
 
@@ -531,32 +543,42 @@ public class PlayerController2D : MonoBehaviour
 
     void HandleShooting()
     {
-        if (isReloading) return;
+        if (isReloading || !shootingEnabled) return; // Check if shooting is enabled
         
         bool mouseButtonPressed = Input.GetMouseButton(0);
         bool mouseButtonDown = Input.GetMouseButtonDown(0);
+        
+        // Debug mouse input
+        if (mouseButtonDown)
+        {
+            Debug.Log("🖱️ Mouse button down detected!");
+        }
         
         bool shouldShoot = false;
         
         if (autoFire && mouseButtonPressed && Time.time >= nextFireTime)
         {
             shouldShoot = true;
+            Debug.Log("🔥 Auto fire triggered!");
         }
         else if (singleFire && mouseButtonDown && Time.time >= nextFireTime)
         {
             shouldShoot = true;
+            Debug.Log("🔫 Single fire triggered!");
         }
         
         if (shouldShoot)
         {
             if (currentAmmo > 0)
             {
+                Debug.Log($"💥 Shooting! Ammo: {currentAmmo}, Direction: {shootDirection}");
                 Shoot();
                 nextFireTime = Time.time + fireRate;
             }
             else
             {
                 PlayEmptyClipSound();
+                Debug.Log("🚫 No ammo!");
             }
         }
         
@@ -567,12 +589,26 @@ public class PlayerController2D : MonoBehaviour
     {
         if (bulletPrefab == null || firePoint == null) return;
         
+        Debug.Log($"🎯 Creating bullet at {firePoint.position} with direction {shootDirection}");
+        
         GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
         
-        Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
-        if (bulletRb != null)
+        // Use Initialize method if Bullet script exists
+        Bullet bulletScript = bullet.GetComponent<Bullet>();
+        if (bulletScript != null)
         {
-            bulletRb.velocity = shootDirection * bulletSpeed;
+            bulletScript.Initialize(shootDirection, true, bulletDamage, gameObject);
+            Debug.Log("✅ Bullet initialized with script");
+        }
+        else
+        {
+            // Fallback to direct rigidbody control
+            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
+            if (bulletRb != null)
+            {
+                bulletRb.velocity = shootDirection * bulletSpeed;
+                Debug.Log("✅ Bullet velocity set directly");
+            }
         }
         
         currentAmmo--;
@@ -595,11 +631,24 @@ public class PlayerController2D : MonoBehaviour
     {
         if (playerCamera == null) return;
         
-        mousePosition = playerCamera.ScreenToWorldPoint(Input.mousePosition);
+        Vector3 mouseWorldPos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
+        mousePosition = new Vector2(mouseWorldPos.x, mouseWorldPos.y);
         shootDirection = (mousePosition - (Vector2)firePoint.position).normalized;
+        
+        // Ensure we have a valid direction
+        if (shootDirection.magnitude < 0.1f)
+        {
+            shootDirection = Vector2.right; // Default to right if no valid direction
+        }
         
         float angle = Mathf.Atan2(shootDirection.y, shootDirection.x) * Mathf.Rad2Deg;
         firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+        
+        // Debug aiming every few frames
+        if (Time.frameCount % 60 == 0) // Every 60 frames
+        {
+            Debug.Log($"🎯 Mouse: {mousePosition}, Direction: {shootDirection}, Angle: {angle:F1}°");
+        }
     }
 
     void StartReload()

@@ -7,7 +7,7 @@ public class GameOverManager : MonoBehaviour
     [Header("UI References")]
     public Button restartButton;
     public Button exitButton;
-    public GameObject gameOverPanel; // Add this reference
+    public GameObject gameOverPanel;
     
     [Header("Scene Settings")]
     public string mainMenuSceneName = "MainMenu";
@@ -23,6 +23,9 @@ public class GameOverManager : MonoBehaviour
     
     void Start()
     {
+        // RESET FLAG SETIAP KALI START
+        gameOverActivated = false;
+        
         // Setup audio source
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
@@ -33,11 +36,13 @@ public class GameOverManager : MonoBehaviour
         // Setup button listeners
         if (restartButton != null)
         {
+            restartButton.onClick.RemoveAllListeners(); // Clear existing listeners
             restartButton.onClick.AddListener(RestartGame);
         }
         
         if (exitButton != null)
         {
+            exitButton.onClick.RemoveAllListeners(); // Clear existing listeners
             exitButton.onClick.AddListener(ExitToMainMenu);
         }
         
@@ -45,23 +50,38 @@ public class GameOverManager : MonoBehaviour
         if (gameOverPanel != null)
         {
             gameOverPanel.SetActive(false);
+            Debug.Log("🎮 GameOverManager: Panel hidden on start");
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ GameOverManager: gameOverPanel is NULL! Please assign in inspector!");
         }
         
         // Don't pause game at start
         Time.timeScale = 1f;
+        
+        Debug.Log("🎮 GameOverManager initialized - gameOverActivated reset to FALSE");
     }
     
     // Method yang dipanggil dari HealthSystem
     public void ActivateGameOver()
     {
-        if (!gameOverActivated)
-        {
+        Debug.Log($"💀 ActivateGameOver called! gameOverActivated = {gameOverActivated}");
+        
+        // HAPUS PENGECEKAN gameOverActivated AGAR BISA DIPANGGIL BERULANG
+        // if (!gameOverActivated) // <-- INI YANG MENYEBABKAN BUG!
+        // {
             gameOverActivated = true;
             
             // Show game over panel
             if (gameOverPanel != null)
             {
                 gameOverPanel.SetActive(true);
+                Debug.Log("✅ Game Over panel activated!");
+            }
+            else
+            {
+                Debug.LogError("❌ gameOverPanel is NULL! Cannot show game over!");
             }
             
             // Play game over sound
@@ -73,8 +93,8 @@ public class GameOverManager : MonoBehaviour
             // Pause game
             Time.timeScale = 0f;
             
-            Debug.Log("Game Over Activated!");
-        }
+            Debug.Log("💀 Game Over Activated!");
+        // }
     }
     
     // Alternative method name for compatibility
@@ -85,7 +105,14 @@ public class GameOverManager : MonoBehaviour
     
     public void RestartGame()
     {
+        Debug.Log("🔄 RestartGame called!");
+        
         PlayButtonSound();
+        
+        // RESET FLAG SEBELUM RESTART
+        gameOverActivated = false;
+        
+        // Reset time scale
         Time.timeScale = 1f;
         
         if (useCurrentScene)
@@ -107,8 +134,15 @@ public class GameOverManager : MonoBehaviour
     
     public void ExitToMainMenu()
     {
+        Debug.Log("🚪 ExitToMainMenu called!");
+        
         PlayButtonSound();
+        
+        // Reset time scale
         Time.timeScale = 1f;
+        
+        // Reset flag
+        gameOverActivated = false;
         
         if (!string.IsNullOrEmpty(mainMenuSceneName))
         {
@@ -133,8 +167,29 @@ public class GameOverManager : MonoBehaviour
         }
     }
     
+    // PUBLIC METHOD UNTUK RESET FLAG DARI LUAR
+    public void ResetGameOverState()
+    {
+        gameOverActivated = false;
+        
+        if (gameOverPanel != null)
+        {
+            gameOverPanel.SetActive(false);
+        }
+        
+        Time.timeScale = 1f;
+        
+        Debug.Log("🔄 GameOverManager state reset");
+    }
+    
     void OnDestroy()
     {
         Time.timeScale = 1f;
+    }
+    
+    // Method untuk debug
+    public bool IsGameOverActivated()
+    {
+        return gameOverActivated;
     }
 }

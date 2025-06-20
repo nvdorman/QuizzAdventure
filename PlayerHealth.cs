@@ -39,6 +39,7 @@ public class PlayerHealth : MonoBehaviour
     // Private variables
     private int currentHealth;
     private bool isInvulnerable = false;
+    private bool isDead = false; // Add flag to prevent multiple death calls
     private Image[] heartImages;
     private AudioSource audioSource;
     private SpriteRenderer playerRenderer;
@@ -83,6 +84,7 @@ public class PlayerHealth : MonoBehaviour
     void InitializeHealth()
     {
         currentHealth = maxHearts * hitsPerHeart;
+        isDead = false; // Reset death flag
         
         // Setup heart container if not assigned
         if (heartContainer == null)
@@ -231,7 +233,7 @@ public class PlayerHealth : MonoBehaviour
     
     public void TakeDamage(int damage = 1)
     {
-        if (isInvulnerable || currentHealth <= 0) return;
+        if (isInvulnerable || currentHealth <= 0 || isDead) return;
         
         currentHealth -= damage;
         currentHealth = Mathf.Max(0, currentHealth);
@@ -338,7 +340,7 @@ public class PlayerHealth : MonoBehaviour
     
     public void Heal(int healAmount = 1)
     {
-        if (currentHealth >= maxHearts * hitsPerHeart) return;
+        if (currentHealth >= maxHearts * hitsPerHeart || isDead) return;
         
         currentHealth += healAmount;
         currentHealth = Mathf.Min(maxHearts * hitsPerHeart, currentHealth);
@@ -357,6 +359,9 @@ public class PlayerHealth : MonoBehaviour
     
     void Die()
     {
+        if (isDead) return; // Prevent multiple death calls
+        
+        isDead = true;
         OnPlayerDeath?.Invoke();
         
         // Play death sound
@@ -379,22 +384,98 @@ public class PlayerHealth : MonoBehaviour
             rb.isKinematic = true;
         }
         
-        // Show game over
-        if (useGameOverManager)
+        // Show game over with delay to allow death sound/animation
+        StartCoroutine(ShowGameOverWithDelay());
+        
+        Debug.Log("Player died!");
+    }
+    
+    IEnumerator ShowGameOverWithDelay()
+    {
+        yield return new WaitForSeconds(1f); // Wait for death effects
+        
+        // Try multiple ways to show game over
+        bool gameOverShown = false;
+        
+        // Method 1: Try GameOverManager
+        GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
+        if (gameOverManager != null)
         {
-            if (gameOverCanvas != null)
+            gameOverManager.ActivateGameOver();
+            gameOverShown = true;
+        }
+        
+        // Method 2: Try assigned canvas
+        if (!gameOverShown && gameOverCanvas != null)
+        {
+            gameOverCanvas.SetActive(true);
+            GameOverManager canvasManager = gameOverCanvas.GetComponent<GameOverManager>();
+            if (canvasManager != null)
             {
-                gameOverCanvas.SetActive(true);
-                
-                GameOverManager gameOverManager = gameOverCanvas.GetComponent<GameOverManager>();
-                if (gameOverManager != null)
+                canvasManager.ActivateGameOver();
+            }
+            else
+            {
+                Time.timeScale = 0f; // Pause game if no manager
+            }
+            gameOverShown = true;
+        }
+        
+        // Method 3: Find any game over canvas in scene
+        if (!gameOverShown)
+        {
+            Canvas[] canvases = FindObjectsOfType<Canvas>();
+            foreach (Canvas canvas in canvases)
+            {
+                if (canvas.name.ToLower().Contains("gameover") || 
+                    canvas.name.ToLower().Contains("game_over") ||
+                    canvas.name.ToLower().Contains("gameovercanvas"))
                 {
-                    gameOverManager.ActivateGameOver();
+                    canvas.gameObject.SetActive(true);
+                    Time.timeScale = 0f;
+                    gameOverShown = true;
+                    Debug.Log($"Found and activated game over canvas: {canvas.name}");
+                    break;
                 }
             }
         }
         
-        Debug.Log("Player died!");
+        if (!gameOverShown)
+        {
+            Debug.LogError("No game over system found! Please assign gameOverCanvas or add GameOverManager to scene.");
+        }
+    }
+    
+    // Public method to reset player health (useful for respawn/restart)
+    public void ResetHealth()
+    {
+        isDead = false;
+        currentHealth = maxHearts * hitsPerHeart;
+        isInvulnerable = false;
+        
+        UpdateHeartUI();
+        OnHealthChanged?.Invoke(currentHealth, maxHearts * hitsPerHeart);
+        
+        // Re-enable player controls
+        if (playerController != null)
+        {
+            playerController.enabled = true;
+        }
+        
+        // Re-enable rigidbody
+        Rigidbody2D rb = GetComponent<Rigidbody2D>();
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+        }
+        
+        // Reset sprite color
+        if (playerRenderer != null)
+        {
+            playerRenderer.color = originalColor;
+        }
+        
+        Debug.Log("Player health reset!");
     }
     
     // Public methods for external use
@@ -402,7 +483,7 @@ public class PlayerHealth : MonoBehaviour
     public int GetMaxHealth() { return maxHearts * hitsPerHeart; }
     public float GetHealthPercentage() { return (float)currentHealth / (maxHearts * hitsPerHeart); }
     public bool IsInvulnerable() { return isInvulnerable; }
-    public bool IsDead() { return currentHealth <= 0; }
+    public bool IsDead() { return isDead; }
     
     public void SetMaxHearts(int newMaxHearts)
     {
@@ -413,6 +494,8 @@ public class PlayerHealth : MonoBehaviour
     
     public void FullHeal()
     {
+        if (isDead) return;
+        
         currentHealth = maxHearts * hitsPerHeart;
         UpdateHeartUI();
         OnHealthChanged?.Invoke(currentHealth, maxHearts * hitsPerHeart);
@@ -436,5 +519,11 @@ public class PlayerHealth : MonoBehaviour
     {
         currentHealth = 1;
         TakeDamage(1);
+    }
+    
+    [ContextMenu("Reset Health")]
+    void TestResetHealth()
+    {
+        ResetHealth();
     }
 }
