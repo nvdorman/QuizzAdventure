@@ -1,6 +1,5 @@
 using UnityEngine;
 using System.Collections;
-using System.Collections.Generic;
 
 public class PlayerController2D : MonoBehaviour
 {
@@ -34,10 +33,10 @@ public class PlayerController2D : MonoBehaviour
     [Header("Hit Animation Settings")]
     public float hitAnimationDuration = 0.15f;
     public Color hitColor = Color.white;
-    
+
     [Header("Animation Settings")]
     public float walkAnimationSpeed = 7.5f;
-    public float jumpAnimationMinTime = 0.3f; // Untuk animasi jump
+    public float jumpAnimationMinTime = 0.3f;
     
     [Header("Collider Settings")]
     [Range(0.5f, 1.0f)]
@@ -45,14 +44,17 @@ public class PlayerController2D : MonoBehaviour
     [Range(0.5f, 1.0f)]
     public float colliderHeightMultiplier = 0.9f;
     
-    [Header("Ground Check")]
+    [Header("Ground Check - IMPROVED")]
     public LayerMask groundLayerMask = 1;
     public float groundCheckDistance = 0.2f;
+    [Range(0.5f, 1.0f)]
+    public float groundStabilityThreshold = 0.6f; // Minimum ground coverage required
+    public float coyoteTime = 0.1f; // Grace period after leaving ground
+    public float jumpCooldown = 0.15f; // Minimum time between jumps
     
     [Header("Tags & Layers")]
     public string groundTag = "Ground";
 
-    // Enum untuk pilihan character
     public enum CharacterColor
     {
         Beige,
@@ -62,7 +64,6 @@ public class PlayerController2D : MonoBehaviour
         Yellow
     }
 
-    // Struct untuk menyimpan sprite data
     [System.Serializable]
     public struct CharacterSprites
     {
@@ -91,9 +92,16 @@ public class PlayerController2D : MonoBehaviour
     private float originalMoveSpeed;
     private Color originalColor;
     
-    // SIMPLE JUMP SYSTEM
-    private bool canJump = true; // Bisa jump atau tidak
-    private float jumpTime = 0f; // Untuk animasi jump
+    // IMPROVED JUMP SYSTEM
+    private bool canJump = true;
+    private float jumpTime = 0f;
+    private float lastJumpTime = 0f; // For jump cooldown
+    private float lastGroundedTime = 0f; // For coyote time
+    private float groundStability = 0f; // How much ground is under player (0-1)
+    
+    // Slow motion system (for GameOverTrigger compatibility)
+    private float currentSlowMotionFactor = 1f;
+    private bool isInSlowMotion = false;
     
     // Character data
     private CharacterSprites currentCharacterSprites;
@@ -125,7 +133,6 @@ public class PlayerController2D : MonoBehaviour
 
     void Start()
     {
-        // Set initial sprite dan warna
         if (spriteRenderer != null && currentCharacterSprites.idle != null)
         {
             spriteRenderer.sprite = currentCharacterSprites.idle;
@@ -136,40 +143,34 @@ public class PlayerController2D : MonoBehaviour
 
     void InitializeComponents()
     {
-        // Get atau create Rigidbody2D
         rb = GetComponent<Rigidbody2D>();
         if (rb == null)
         {
             rb = gameObject.AddComponent<Rigidbody2D>();
         }
         
-        // Setup Rigidbody2D properties
         rb.gravityScale = 3f;
         rb.freezeRotation = true;
         rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
         
-        // Get atau create SpriteRenderer
         spriteRenderer = GetComponent<SpriteRenderer>();
         if (spriteRenderer == null)
         {
             spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
         }
         
-        // Get atau create AudioSource
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
         }
         
-        // Get atau create CapsuleCollider2D
         capsuleCollider = GetComponent<CapsuleCollider2D>();
         if (capsuleCollider == null)
         {
             capsuleCollider = gameObject.AddComponent<CapsuleCollider2D>();
         }
         
-        // Setup collider properties
         capsuleCollider.direction = CapsuleDirection2D.Vertical;
         
         playerCamera = Camera.main;
@@ -181,7 +182,6 @@ public class PlayerController2D : MonoBehaviour
         originalMoveSpeed = moveSpeed;
         currentAmmo = maxAmmo;
         
-        // Setup fire point if not assigned
         if (firePoint == null)
         {
             GameObject firePointObj = new GameObject("FirePoint");
@@ -213,12 +213,10 @@ public class PlayerController2D : MonoBehaviour
 
     Sprite LoadSpriteFromResources(string spriteName)
     {
-        // Try loading from Resources/character/ folder
         Sprite sprite = Resources.Load<Sprite>($"character/{spriteName}");
         
         if (sprite == null)
         {
-            // Fallback: try loading from Resources root
             sprite = Resources.Load<Sprite>(spriteName);
         }
         
@@ -234,26 +232,25 @@ public class PlayerController2D : MonoBehaviour
     {
         currentAnimationState = IDLE;
         isGrounded = true;
-        canJump = true; // Mulai dengan bisa jump
+        canJump = true;
+        lastGroundedTime = Time.time;
+        currentSlowMotionFactor = 1f;
+        isInSlowMotion = false;
     }
 
     void UpdateColliderToFitSprite(Sprite sprite)
     {
         if (capsuleCollider == null || sprite == null) return;
         
-        // Get sprite bounds in world units
         Bounds spriteBounds = sprite.bounds;
         
-        // Calculate collider size berdasarkan sprite bounds
         Vector2 colliderSize = new Vector2(
             spriteBounds.size.x * colliderWidthMultiplier,
             spriteBounds.size.y * colliderHeightMultiplier
         );
         
-        // Set collider size
         capsuleCollider.size = colliderSize;
         
-        // Set offset (biasanya sedikit ke bawah untuk grounded check yang baik)
         Vector2 colliderOffset = new Vector2(0f, -spriteBounds.size.y * 0.05f);
         capsuleCollider.offset = colliderOffset;
         
@@ -276,59 +273,83 @@ public class PlayerController2D : MonoBehaviour
 
     void HandleInput()
     {
-        // Get horizontal input
         movementInput = Input.GetAxisRaw("Horizontal");
 
-        // JUMP INPUT dengan debug lebih detail
+        // IMPROVED JUMP INPUT with all anti-spam measures
         if (Input.GetButtonDown("Jump"))
         {
-            Debug.Log($"🎮 Jump button pressed! Moving: {movementInput != 0}, Grounded: {isGrounded}, CanJump: {canJump}, VelY: {rb.velocity.y:F2}");
+            Debug.Log($"🎮 Jump input! Grounded: {isGrounded}, CanJump: {canJump}, Stability: {groundStability:F2}, " +
+                     $"Cooldown: {Time.time - lastJumpTime:F2}s, VelY: {rb.velocity.y:F2}");
             
-            if (isGrounded && canJump && !isDucking)
-            {
-                Jump();
-            }
-            else
-            {
-                Debug.Log($"❌ Jump conditions not met!");
-            }
+            TryJump();
         }
         
-        // Duck/Crouch input (Ctrl key)
         HandleDuckInput();
         
-        // Reload input
         if (Input.GetKeyDown(KeyCode.R) && !isReloading)
         {
             StartReload();
         }
     }
     
-    void Jump()
+    void TryJump()
     {
-        // Double check kondisi jump dengan lebih ketat
-        if (!isGrounded || !canJump || isDucking)
+        // STRICT CONDITIONS - All must be met to jump
+        bool cooldownPassed = (Time.time - lastJumpTime) >= jumpCooldown;
+        bool withinCoyoteTime = (Time.time - lastGroundedTime) <= coyoteTime;
+        bool hasGroundStability = groundStability >= groundStabilityThreshold;
+        bool notMovingUpTooFast = rb.velocity.y <= 0.5f;
+        bool basicConditions = canJump && !isDucking;
+        
+        // Must be either grounded OR within coyote time (but not both conditions relaxed)
+        bool groundCondition = isGrounded || (withinCoyoteTime && hasGroundStability);
+        
+        if (!cooldownPassed)
         {
-            Debug.Log($"❌ Jump denied: grounded={isGrounded}, canJump={canJump}, ducking={isDucking}");
+            Debug.Log($"❌ Jump denied: Cooldown not passed ({Time.time - lastJumpTime:F2}s < {jumpCooldown}s)");
             return;
         }
         
-        // Additional check: jika velocity Y masih positif (sedang naik), jangan jump
-        if (rb.velocity.y > 0.2f)
+        if (!groundCondition)
         {
-            Debug.Log($"❌ Jump denied: still moving up (velY={rb.velocity.y:F2})");
+            Debug.Log($"❌ Jump denied: Not grounded ({isGrounded}) and not in coyote time ({Time.time - lastGroundedTime:F2}s > {coyoteTime}s)");
             return;
         }
         
-        // Execute jump
+        if (!hasGroundStability)
+        {
+            Debug.Log($"❌ Jump denied: Insufficient ground stability ({groundStability:F2} < {groundStabilityThreshold})");
+            return;
+        }
+        
+        if (!notMovingUpTooFast)
+        {
+            Debug.Log($"❌ Jump denied: Moving up too fast (velY={rb.velocity.y:F2})");
+            return;
+        }
+        
+        if (!basicConditions)
+        {
+            Debug.Log($"❌ Jump denied: Basic conditions failed (canJump={canJump}, ducking={isDucking})");
+            return;
+        }
+        
+        // All conditions passed - Execute jump
+        ExecuteJump();
+    }
+    
+    void ExecuteJump()
+    {
         rb.velocity = new Vector2(rb.velocity.x, jumpForce);
         
-        // IMMEDIATE LOCKS - Langsung kunci semua
+        // IMMEDIATE STATE CHANGES
         canJump = false;
         isGrounded = false;
         jumpTime = Time.time;
+        lastJumpTime = Time.time;
+        groundStability = 0f; // Reset stability immediately
         
-        Debug.Log($"🚀 Jump executed! Locks applied. VelY: {rb.velocity.y:F2}");
+        Debug.Log($"🚀 JUMP EXECUTED! All locks applied. VelY: {rb.velocity.y:F2}");
     }
     
     void HandleDuckInput()
@@ -344,255 +365,108 @@ public class PlayerController2D : MonoBehaviour
             StopDuck();
         }
     }
-    
+
     void StartDuck()
     {
         isDucking = true;
-        moveSpeed = originalMoveSpeed * duckSpeedMultiplier;
-        Debug.Log("🦆 Player is ducking!");
+        moveSpeed = originalMoveSpeed * duckSpeedMultiplier * currentSlowMotionFactor;
+        canJump = false; // Can't jump while ducking
+        Debug.Log("Started ducking");
     }
-    
+
     void StopDuck()
     {
         isDucking = false;
-        moveSpeed = originalMoveSpeed;
-        Debug.Log("🚶 Player stopped ducking!");
+        moveSpeed = originalMoveSpeed * currentSlowMotionFactor;
+        // Don't immediately restore canJump - let ground check handle it
+        Debug.Log("Stopped ducking");
     }
-    
-    // SIMPLE GROUND CHECK
+
+    // COMPLETELY REWRITTEN CheckGrounded with strict validation
     void CheckGrounded()
     {
         if (capsuleCollider == null) return;
         
-        // Multiple raycast points untuk deteksi ground yang lebih akurat
+        // Calculate raycast positions - more points for better accuracy
         Vector2 centerBottom = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
-        Vector2 leftBottom = centerBottom - new Vector2(capsuleCollider.size.x * 0.4f, 0);
-        Vector2 rightBottom = centerBottom + new Vector2(capsuleCollider.size.x * 0.4f, 0);
+        Vector2 leftBottom = centerBottom - new Vector2(capsuleCollider.size.x * 0.35f, 0);
+        Vector2 rightBottom = centerBottom + new Vector2(capsuleCollider.size.x * 0.35f, 0);
+        Vector2 farLeftBottom = centerBottom - new Vector2(capsuleCollider.size.x * 0.45f, 0);
+        Vector2 farRightBottom = centerBottom + new Vector2(capsuleCollider.size.x * 0.45f, 0);
         
-        // Raycast dari 3 titik berbeda
+        // Perform 5 raycasts for better ground detection
         RaycastHit2D centerHit = Physics2D.Raycast(centerBottom, Vector2.down, groundCheckDistance, groundLayerMask);
         RaycastHit2D leftHit = Physics2D.Raycast(leftBottom, Vector2.down, groundCheckDistance, groundLayerMask);
         RaycastHit2D rightHit = Physics2D.Raycast(rightBottom, Vector2.down, groundCheckDistance, groundLayerMask);
+        RaycastHit2D farLeftHit = Physics2D.Raycast(farLeftBottom, Vector2.down, groundCheckDistance, groundLayerMask);
+        RaycastHit2D farRightHit = Physics2D.Raycast(farRightBottom, Vector2.down, groundCheckDistance, groundLayerMask);
         
-        bool groundDetected = centerHit.collider != null || leftHit.collider != null || rightHit.collider != null;
+        // Count hits and calculate stability
+        int hitCount = 0;
+        if (centerHit.collider != null) hitCount++;
+        if (leftHit.collider != null) hitCount++;
+        if (rightHit.collider != null) hitCount++;
+        if (farLeftHit.collider != null) hitCount++;
+        if (farRightHit.collider != null) hitCount++;
+        
+        // Calculate ground stability (0.0 to 1.0)
+        groundStability = hitCount / 5f;
+        
         bool wasGrounded = isGrounded;
+        bool hasMinimumGroundContact = groundStability >= groundStabilityThreshold;
+        bool isMovingDownward = rb.velocity.y <= 1f; // More lenient for grounding
         
-        // STRICT GROUNDING RULES - Mencegah spam jump saat bergerak
-        if (groundDetected && !wasGrounded)
+        // STRICT GROUNDING RULES
+        if (hasMinimumGroundContact && isMovingDownward)
         {
-            // Hanya set grounded jika velocity Y sudah cukup ke bawah (tidak sedang naik/jump)
-            bool isMovingDownward = rb.velocity.y <= 0.5f;
-            
-            if (isMovingDownward)
+            if (!wasGrounded)
             {
+                // Just landed
                 isGrounded = true;
-                canJump = true; // RESTORE JUMP ABILITY
-                Debug.Log($"✅ Grounded! Velocity Y: {rb.velocity.y:F2}");
+                canJump = true;
+                lastGroundedTime = Time.time;
+                Debug.Log($"✅ LANDED! Stability: {groundStability:F2}, VelY: {rb.velocity.y:F2}");
+            }
+            else
+            {
+                // Still grounded
+                isGrounded = true;
+                if (!isDucking) canJump = true;
+                lastGroundedTime = Time.time;
             }
         }
-        else if (!groundDetected && wasGrounded)
+        else if (!hasMinimumGroundContact)
         {
+            // Lost ground contact
+            if (wasGrounded)
+            {
+                Debug.Log($"⚠️ LEFT GROUND! Stability dropped to: {groundStability:F2}");
+            }
             isGrounded = false;
-            // TIDAK langsung set canJump = false di sini, biarkan jump() yang handle
+            // Don't immediately disable canJump - let coyote time handle it
         }
         
-        // Debug rays untuk visualisasi
-        Color rayColor = groundDetected ? Color.green : Color.red;
+        // Visual debug
+        Color rayColor = hasMinimumGroundContact ? Color.green : Color.red;
         Debug.DrawRay(centerBottom, Vector2.down * groundCheckDistance, rayColor);
         Debug.DrawRay(leftBottom, Vector2.down * groundCheckDistance, rayColor);
         Debug.DrawRay(rightBottom, Vector2.down * groundCheckDistance, rayColor);
-    }
-    
-    void HandleShooting()
-    {
-        if (isReloading) return;
+        Debug.DrawRay(farLeftBottom, Vector2.down * groundCheckDistance, Color.cyan);
+        Debug.DrawRay(farRightBottom, Vector2.down * groundCheckDistance, Color.cyan);
         
-        bool currentMouseButton = Input.GetMouseButton(0);
-        bool mouseButtonDown = Input.GetMouseButtonDown(0);
-        
-        // Single fire mode
-        if (singleFire)
+        // Debug stability info
+        if (Time.frameCount % 30 == 0) // Every 30 frames
         {
-            if (mouseButtonDown && Time.time >= nextFireTime)
-            {
-                if (currentAmmo > 0)
-                {
-                    Shoot();
-                    nextFireTime = Time.time + fireRate;
-                }
-                else
-                {
-                    PlayEmptyClipSound();
-                    StartReload();
-                }
-            }
+            Debug.Log($"Ground Debug - Stability: {groundStability:F2}, Grounded: {isGrounded}, CanJump: {canJump}, " +
+                     $"TimeSinceGrounded: {Time.time - lastGroundedTime:F2}s");
         }
-        // Auto fire mode
-        else if (autoFire)
-        {
-            if (currentMouseButton && Time.time >= nextFireTime)
-            {
-                if (currentAmmo > 0)
-                {
-                    Shoot();
-                    nextFireTime = Time.time + fireRate;
-                }
-                else
-                {
-                    PlayEmptyClipSound();
-                    StartReload();
-                }
-            }
-        }
-        
-        lastMouseButtonState = currentMouseButton;
-    }
-    
-    void PlayEmptyClipSound()
-    {
-        if (audioSource != null && emptyClipSound != null)
-        {
-            audioSource.PlayOneShot(emptyClipSound);
-        }
-    }
-    
-    void UpdateAiming()
-    {
-        if (playerCamera != null)
-        {
-            mousePosition = playerCamera.ScreenToWorldPoint(Input.mousePosition);
-            shootDirection = (mousePosition - (Vector2)transform.position).normalized;
-            
-            if (firePoint != null)
-            {
-                float angle = Mathf.Atan2(shootDirection.y, shootDirection.x) * Mathf.Rad2Deg;
-                firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
-                
-                // Adjust fire point position based on current animation
-                float firePointY = isDucking ? shootDirection.y * 0.2f : shootDirection.y * 0.3f;
-                
-                firePoint.localPosition = new Vector3(
-                    Mathf.Abs(shootDirection.x) * 0.5f, 
-                    firePointY, 
-                    0
-                );
-            }
-        }
-    }
-    
-    void Shoot()
-    {
-        if (bulletPrefab == null || firePoint == null) return;
-        
-        currentAmmo--;
-        
-        // Create bullet
-        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
-        Bullet bulletScript = bullet.GetComponent<Bullet>();
-        
-        if (bulletScript != null)
-        {
-            bulletScript.Initialize(shootDirection, true, bulletDamage);
-        }
-        else
-        {
-            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
-            if (bulletRb != null)
-            {
-                bulletRb.velocity = shootDirection * bulletSpeed;
-            }
-        }
-        
-        // Play shoot sound
-        if (audioSource != null && shootSound != null)
-        {
-            audioSource.PlayOneShot(shootSound);
-        }
-        
-        // Show muzzle flash
-        if (muzzleFlash != null)
-        {
-            StartCoroutine(ShowMuzzleFlash());
-        }
-        
-        // Hit animation saat menembak
-        StartCoroutine(PlayHitAnimationOnShoot());
-        
-        Debug.Log($"💥 Shot fired! Ammo: {currentAmmo}/{maxAmmo}");
-    }
-    
-    System.Collections.IEnumerator PlayHitAnimationOnShoot()
-    {
-        if (spriteRenderer != null && currentCharacterSprites.hit != null)
-        {
-            Color currentColor = spriteRenderer.color;
-            Sprite originalSprite = spriteRenderer.sprite;
-            
-            // Flash color and change sprite
-            spriteRenderer.color = hitColor;
-            spriteRenderer.sprite = currentCharacterSprites.hit;
-            UpdateColliderToFitSprite(currentCharacterSprites.hit);
-            
-            yield return new WaitForSeconds(hitAnimationDuration);
-            
-            // Restore original
-            spriteRenderer.color = currentColor;
-            spriteRenderer.sprite = originalSprite;
-            UpdateColliderToFitSprite(originalSprite);
-        }
-    }
-    
-    System.Collections.IEnumerator ShowMuzzleFlash()
-    {
-        if (muzzleFlash != null)
-        {
-            GameObject flash = Instantiate(muzzleFlash, firePoint.position, firePoint.rotation);
-            yield return new WaitForSeconds(0.1f);
-            if (flash != null) Destroy(flash);
-        }
-    }
-    
-    void StartReload()
-    {
-        if (currentAmmo >= maxAmmo || isReloading) return;
-        
-        StartCoroutine(ReloadCoroutine());
-    }
-    
-    System.Collections.IEnumerator ReloadCoroutine()
-    {
-        isReloading = true;
-        reloadProgress = 0f;
-        
-        if (audioSource != null && reloadSound != null)
-        {
-            audioSource.PlayOneShot(reloadSound);
-        }
-        
-        Debug.Log("🔄 Reloading...");
-        
-        float elapsedTime = 0f;
-        while (elapsedTime < reloadTime)
-        {
-            elapsedTime += Time.deltaTime;
-            reloadProgress = elapsedTime / reloadTime;
-            yield return null;
-        }
-        
-        currentAmmo = maxAmmo;
-        isReloading = false;
-        reloadProgress = 1f;
-        
-        Debug.Log("✅ Reload complete!");
     }
 
     void HandleMovement()
     {
-        // Apply horizontal movement
         float targetVelocityX = movementInput * moveSpeed;
         rb.velocity = new Vector2(targetVelocityX, rb.velocity.y);
         
-        // Handle sprite flipping
         if (spriteRenderer != null)
         {
             if (movementInput != 0)
@@ -614,7 +488,6 @@ public class PlayerController2D : MonoBehaviour
         string newAnimationState = "";
         Sprite newSprite = null;
         
-        // Cek apakah masih dalam periode minimum animasi jump
         bool isInJumpAnimation = (Time.time - jumpTime) < jumpAnimationMinTime;
         
         if (isDucking)
@@ -627,9 +500,8 @@ public class PlayerController2D : MonoBehaviour
             newAnimationState = JUMP;
             newSprite = currentCharacterSprites.jump;
         }
-        else if (Mathf.Abs(movementInput) > 0.1f) // Walking
+        else if (Mathf.Abs(movementInput) > 0.1f)
         {
-            // Alternate between walk A and B
             float walkAnimationTime = Mathf.PingPong(Time.time * walkAnimationSpeed, 1);
             
             if (walkAnimationTime < 0.5f)
@@ -649,50 +521,203 @@ public class PlayerController2D : MonoBehaviour
             newSprite = currentCharacterSprites.idle;
         }
         
-        // Update sprite and collider if animation changed
         if (newAnimationState != currentAnimationState && newSprite != null)
         {
             currentAnimationState = newAnimationState;
             spriteRenderer.sprite = newSprite;
             UpdateColliderToFitSprite(newSprite);
-            
-            Debug.Log($"Animation changed to: {newAnimationState}");
         }
     }
+
+    void HandleShooting()
+    {
+        if (isReloading) return;
+        
+        bool mouseButtonPressed = Input.GetMouseButton(0);
+        bool mouseButtonDown = Input.GetMouseButtonDown(0);
+        
+        bool shouldShoot = false;
+        
+        if (autoFire && mouseButtonPressed && Time.time >= nextFireTime)
+        {
+            shouldShoot = true;
+        }
+        else if (singleFire && mouseButtonDown && Time.time >= nextFireTime)
+        {
+            shouldShoot = true;
+        }
+        
+        if (shouldShoot)
+        {
+            if (currentAmmo > 0)
+            {
+                Shoot();
+                nextFireTime = Time.time + fireRate;
+            }
+            else
+            {
+                PlayEmptyClipSound();
+            }
+        }
+        
+        lastMouseButtonState = mouseButtonPressed;
+    }
+
+    void Shoot()
+    {
+        if (bulletPrefab == null || firePoint == null) return;
+        
+        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
+        
+        Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
+        if (bulletRb != null)
+        {
+            bulletRb.velocity = shootDirection * bulletSpeed;
+        }
+        
+        currentAmmo--;
+        
+        if (shootSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(shootSound);
+        }
+        
+        if (muzzleFlash != null)
+        {
+            GameObject flash = Instantiate(muzzleFlash, firePoint.position, firePoint.rotation);
+            Destroy(flash, 0.1f);
+        }
+        
+        StartCoroutine(PlayHitAnimationOnShoot());
+    }
+
+    void UpdateAiming()
+    {
+        if (playerCamera == null) return;
+        
+        mousePosition = playerCamera.ScreenToWorldPoint(Input.mousePosition);
+        shootDirection = (mousePosition - (Vector2)firePoint.position).normalized;
+        
+        float angle = Mathf.Atan2(shootDirection.y, shootDirection.x) * Mathf.Rad2Deg;
+        firePoint.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+    }
+
+    void StartReload()
+    {
+        if (currentAmmo >= maxAmmo) return;
+        
+        StartCoroutine(ReloadCoroutine());
+    }
+
+    IEnumerator ReloadCoroutine()
+    {
+        isReloading = true;
+        reloadProgress = 0f;
+        
+        if (reloadSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(reloadSound);
+        }
+        
+        float elapsedTime = 0f;
+        while (elapsedTime < reloadTime)
+        {
+            elapsedTime += Time.deltaTime;
+            reloadProgress = elapsedTime / reloadTime;
+            yield return null;
+        }
+        
+        currentAmmo = maxAmmo;
+        isReloading = false;
+        reloadProgress = 0f;
+    }
+
+    IEnumerator PlayHitAnimationOnShoot()
+    {
+        if (spriteRenderer != null && hitColor != Color.clear)
+        {
+            Color originalColor = spriteRenderer.color;
+            spriteRenderer.color = hitColor;
+            
+            yield return new WaitForSeconds(hitAnimationDuration);
+            
+            spriteRenderer.color = originalColor;
+        }
+    }
+
+    void PlayEmptyClipSound()
+    {
+        if (emptyClipSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(emptyClipSound);
+        }
+    }
+
+    // ==== PUBLIC METHODS FOR EXTERNAL SCRIPTS ====
     
-    // SEMUA PUBLIC METHODS YANG MUNGKIN DIBUTUHKAN SCRIPT LAIN
-    public int GetCurrentAmmo() { return currentAmmo; }
-    
-    public int GetMaxAmmo() { return maxAmmo; }
-    
-    public bool IsReloading() { return isReloading; }
-    
-    public float GetReloadProgress() { return reloadProgress; }
-    
-    public bool IsDucking() { return isDucking; }
-    
+    // Basic state getters
     public bool IsGrounded() { return isGrounded; }
-    
+    public bool IsJumping() { return !isGrounded; }
+    public bool IsDucking() { return isDucking; }
+    public bool IsMoving() { return Mathf.Abs(movementInput) > 0.1f; }
     public bool CanJump() { return canJump; }
     
+    // Shooting system getters
+    public int GetCurrentAmmo() { return currentAmmo; }
+    public int GetMaxAmmo() { return maxAmmo; }
+    public bool IsReloading() { return isReloading; }
+    public float GetReloadProgress() { return reloadProgress; }
+    
+    // Character system getters
     public CharacterColor GetCharacterColor() { return characterColor; }
     
-    // METHOD YANG DIPERLUKAN OLEH SCRIPT LAIN:
+    // New ground stability getter
+    public float GetGroundStability() { return groundStability; }
+    
+    // Jump system getters (for compatibility)
+    public bool HasJumped() { return !canJump; }
+    public bool IsJumpLocked() { return !canJump; }
+    
+    // Legacy compatibility methods
+    public bool IsAgainstWall() { return false; }
+    public bool IsWallHanging() { return false; }
+    public float GetGroundedTime() { return isGrounded ? 1f : 0f; }
+    
+    // ==== SLOW MOTION SYSTEM (for GameOverTrigger compatibility) ====
     public void SetSlowMotion(float slowFactor)
     {
-        moveSpeed = originalMoveSpeed * slowFactor;
+        currentSlowMotionFactor = Mathf.Clamp01(slowFactor);
+        isInSlowMotion = currentSlowMotionFactor < 1f;
+        
+        // Update movement speed based on current state
+        if (isDucking)
+        {
+            moveSpeed = originalMoveSpeed * duckSpeedMultiplier * currentSlowMotionFactor;
+        }
+        else
+        {
+            moveSpeed = originalMoveSpeed * currentSlowMotionFactor;
+        }
+        
+        Debug.Log($"🐌 Slow motion set to: {currentSlowMotionFactor:F2}x speed");
     }
     
-    public bool HasJumped() { return !canJump; } // Return kebalikan dari canJump
+    public void ResetSlowMotion()
+    {
+        SetSlowMotion(1f);
+    }
     
-    public bool IsJumpLocked() { return !canJump; } // Alias untuk HasJumped
+    public bool IsInSlowMotion()
+    {
+        return isInSlowMotion;
+    }
     
-    public bool IsAgainstWall() { return false; } // Simple return false (fitur wall check dihapus)
+    public float GetSlowMotionFactor()
+    {
+        return currentSlowMotionFactor;
+    }
     
-    public bool IsWallHanging() { return false; } // Simple return false
-    
-    public float GetGroundedTime() { return isGrounded ? 1f : 0f; } // Simple implementation
-
+    // ==== SHOOTING MODE SETTERS ====
     public void SetAutoFire(bool auto)
     {
         autoFire = auto;
@@ -705,12 +730,12 @@ public class PlayerController2D : MonoBehaviour
         autoFire = !single;
     }
     
+    // ==== CHARACTER SYSTEM ====
     public void ChangeCharacter(CharacterColor newColor)
     {
         characterColor = newColor;
         LoadCharacterSprites();
         
-        // Update current sprite
         if (spriteRenderer != null && currentCharacterSprites.idle != null)
         {
             spriteRenderer.sprite = currentCharacterSprites.idle;
@@ -733,7 +758,7 @@ public class PlayerController2D : MonoBehaviour
         StartCoroutine(PlayHitAnimationOnShoot());
     }
 
-    // OnValidate untuk update character di editor
+    // ==== UNITY LIFECYCLE METHODS ====
     void OnValidate()
     {
         if (Application.isPlaying && gameObject.activeInHierarchy)
@@ -747,7 +772,6 @@ public class PlayerController2D : MonoBehaviour
         }
     }
 
-    // Debug method untuk testing di Scene view
     void OnDrawGizmosSelected()
     {
         if (capsuleCollider != null)
@@ -757,16 +781,39 @@ public class PlayerController2D : MonoBehaviour
             Vector3 colliderCenter = transform.position + (Vector3)capsuleCollider.offset;
             Gizmos.DrawWireCube(colliderCenter, capsuleCollider.size);
             
-            // Draw ground check
             if (Application.isPlaying)
             {
-                Vector2 rayStart = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
-                Gizmos.color = isGrounded ? Color.green : Color.red;
-                Gizmos.DrawLine(rayStart, rayStart + Vector2.down * groundCheckDistance);
+                // Draw ground check rays
+                Vector2 centerBottom = (Vector2)transform.position + capsuleCollider.offset - new Vector2(0, capsuleCollider.size.y * 0.5f);
+                Vector2 leftBottom = centerBottom - new Vector2(capsuleCollider.size.x * 0.35f, 0);
+                Vector2 rightBottom = centerBottom + new Vector2(capsuleCollider.size.x * 0.35f, 0);
+                Vector2 farLeftBottom = centerBottom - new Vector2(capsuleCollider.size.x * 0.45f, 0);
+                Vector2 farRightBottom = centerBottom + new Vector2(capsuleCollider.size.x * 0.45f, 0);
+                
+                Gizmos.color = groundStability >= groundStabilityThreshold ? Color.green : Color.red;
+                Gizmos.DrawLine(centerBottom, centerBottom + Vector2.down * groundCheckDistance);
+                Gizmos.DrawLine(leftBottom, leftBottom + Vector2.down * groundCheckDistance);
+                Gizmos.DrawLine(rightBottom, rightBottom + Vector2.down * groundCheckDistance);
+                Gizmos.color = Color.cyan;
+                Gizmos.DrawLine(farLeftBottom, farLeftBottom + Vector2.down * groundCheckDistance);
+                Gizmos.DrawLine(farRightBottom, farRightBottom + Vector2.down * groundCheckDistance);
                 
                 // Draw jump ability indicator
                 Gizmos.color = canJump ? Color.green : Color.red;
                 Gizmos.DrawWireSphere(transform.position + Vector3.up * 2f, 0.3f);
+                
+                // Draw ground stability indicator
+                Gizmos.color = Color.yellow;
+                Vector3 stabilityPos = transform.position + Vector3.up * 2.5f;
+                float stabilitySize = groundStability * 0.5f;
+                Gizmos.DrawWireSphere(stabilityPos, stabilitySize);
+                
+                // Draw slow motion indicator
+                if (isInSlowMotion)
+                {
+                    Gizmos.color = Color.blue;
+                    Gizmos.DrawWireSphere(transform.position + Vector3.up * 3f, currentSlowMotionFactor * 0.3f);
+                }
             }
         }
     }
