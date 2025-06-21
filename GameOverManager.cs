@@ -27,20 +27,18 @@ public class GameOverManager : MonoBehaviour
     private AudioSource audioSource;
     private bool gameOverActivated = false;
     
-    // PERBAIKAN: Simplified audio handling - no persistent objects
-    
     void Start()
     {
-        // PERBAIKAN: Force reset semua flags saat Start
+        // Force reset semua flags saat Start
         gameOverActivated = false;
         
         Debug.Log("🎮 GameOverManager Start - Setting up...");
         
-        // PERBAIKAN: Cleanup any leftover persistent audio objects
+        // Cleanup any leftover persistent audio objects
         CleanupAllPersistentAudio();
         
-        // PERBAIKAN: Force reset semua health systems di scene saat start
-        ForceResetAllHealthSystems();
+        // Force reset semua health systems di scene saat start
+        ForceResetAllSystems();
         
         // Setup audio source
         SetupAudioSource();
@@ -67,7 +65,7 @@ public class GameOverManager : MonoBehaviour
     
     void SetupButtons()
     {
-        // PERBAIKAN: Setup restart button dengan debugging detail
+        // Setup restart button dengan debugging detail
         if (restartButton != null)
         {
             restartButton.onClick.RemoveAllListeners();
@@ -95,39 +93,74 @@ public class GameOverManager : MonoBehaviour
         }
     }
     
-    // PERBAIKAN: Method untuk force reset SEMUA health systems di scene
-    void ForceResetAllHealthSystems()
+    // Method untuk force reset SEMUA systems di scene
+    void ForceResetAllSystems()
     {
-        Debug.Log("🔧🔧 GameOverManager - Force resetting all health systems in scene...");
+        Debug.Log("🔧🔧 GameOverManager - Force resetting all systems in scene...");
         
-        // Reset PlayerHealth components
+        // Reset PlayerController2D components
+        PlayerController2D[] playerControllers = FindObjectsOfType<PlayerController2D>();
+        foreach (PlayerController2D pc in playerControllers)
+        {
+            Debug.Log($"🔧🔧 Force resetting PlayerController2D: {pc.name}");
+            // Reset slow motion
+            pc.ResetSlowMotion();
+            // Reset sprite color
+            pc.ResetSpriteColor();
+        }
+        
+        // Reset PlayerHealth components if they exist
         PlayerHealth[] playerHealths = FindObjectsOfType<PlayerHealth>();
         foreach (PlayerHealth ph in playerHealths)
         {
             Debug.Log($"🔧🔧 Force resetting PlayerHealth: {ph.name}");
-            ph.ResetHealth();
+            if (ph.GetComponent<PlayerHealth>().GetType().GetMethod("ResetHealth") != null)
+            {
+                ph.ResetHealth();
+            }
         }
         
-        // Reset HealthSystem components
+        // Reset HealthSystem components if they exist
         HealthSystem[] healthSystems = FindObjectsOfType<HealthSystem>();
         foreach (HealthSystem hs in healthSystems)
         {
             Debug.Log($"🔧🔧 Force resetting HealthSystem: {hs.name}");
-            hs.ResetHealth();
+            if (hs.GetComponent<HealthSystem>().GetType().GetMethod("ResetHealth") != null)
+            {
+                hs.ResetHealth();
+            }
         }
         
-        // Reset GameOverTrigger components
+        // Reset GameOverTrigger components if they exist
         GameOverTrigger[] gameOverTriggers = FindObjectsOfType<GameOverTrigger>();
         foreach (GameOverTrigger got in gameOverTriggers)
         {
-            got.ResetGameOverState();
-            Debug.Log($"🔧🔧 Reset GameOverTrigger: {got.name}");
+            if (got.GetComponent<GameOverTrigger>().GetType().GetMethod("ResetGameOverState") != null)
+            {
+                got.ResetGameOverState();
+                Debug.Log($"🔧🔧 Reset GameOverTrigger: {got.name}");
+            }
         }
         
-        // Force reset static variables
-        HealthSystem.ResetGameOverState();
+        // Force reset static variables if HealthSystem exists
+        try
+        {
+            if (System.Type.GetType("HealthSystem") != null)
+            {
+                var resetMethod = System.Type.GetType("HealthSystem").GetMethod("ResetGameOverState", 
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+                if (resetMethod != null)
+                {
+                    resetMethod.Invoke(null, null);
+                }
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.Log($"Note: HealthSystem static reset not available: {e.Message}");
+        }
         
-        Debug.Log("🔧🔧 GameOverManager - All health systems force reset complete!");
+        Debug.Log("🔧🔧 GameOverManager - All systems force reset complete!");
     }
     
     void SetupAudioSource()
@@ -140,14 +173,14 @@ public class GameOverManager : MonoBehaviour
         audioSource.volume = gameOverSoundVolume;
     }
     
-    // PERBAIKAN: Method yang dipanggil dari HealthSystem - dengan proteksi ganda
+    // Method yang dipanggil dari PlayerController2D atau sistem lain
     public void ActivateGameOver()
     {
         Debug.Log($"💀💀💀 GameOverManager ActivateGameOver called!");
         Debug.Log($"Current gameOverActivated state: {gameOverActivated}");
         Debug.Log($"Current Time.timeScale: {Time.timeScale}");
 
-        // PERBAIKAN: Allow multiple activations but with proper handling
+        // Allow multiple activations but with proper handling
         gameOverActivated = true;
 
         // Show game over panel
@@ -172,16 +205,16 @@ public class GameOverManager : MonoBehaviour
             Debug.LogError("❌ gameOverPanel is NULL! Cannot show game over!");
         }
 
-        // PERBAIKAN: Always play game over sound with fresh audio source
+        // Always play game over sound with fresh audio source
         PlayGameOverSound();
 
-        // PERBAIKAN: Delay pause to allow UI to setup properly
+        // Delay pause to allow UI to setup properly
         StartCoroutine(PauseAfterUI());
 
         Debug.Log("💀 Game Over Activated successfully!");
     }
     
-    // PERBAIKAN: Pause setelah UI siap
+    // Pause setelah UI siap
     IEnumerator PauseAfterUI()
     {
         yield return new WaitForEndOfFrame(); // Wait for UI to be ready
@@ -189,7 +222,7 @@ public class GameOverManager : MonoBehaviour
         Debug.Log("⏸️ Game paused after UI setup");
     }
     
-    // PERBAIKAN: Simplified game over sound - no persistent objects
+    // Simplified game over sound - no persistent objects
     void PlayGameOverSound()
     {
         if (gameOverSound != null && audioSource != null)
@@ -214,7 +247,7 @@ public class GameOverManager : MonoBehaviour
         ActivateGameOver();
     }
     
-    // PERBAIKAN: RestartGame yang lebih simple dan reliable
+    // RestartGame yang lebih simple dan reliable
     public void RestartGame()
     {
         Debug.Log("🔄🔄🔄 GameOverManager RestartGame() EXECUTED!");
@@ -227,7 +260,7 @@ public class GameOverManager : MonoBehaviour
         Time.timeScale = 1f;
         Debug.Log("⏰ Time scale reset to 1");
         
-        // PERBAIKAN: Cleanup everything before reload
+        // Cleanup everything before reload
         CleanupAllPersistentAudio();
         
         // Reset flags
@@ -304,7 +337,7 @@ public class GameOverManager : MonoBehaviour
         Debug.Log("🔄 GameOverManager state reset complete");
     }
     
-    // PERBAIKAN: Cleanup semua persistent audio objects
+    // Cleanup semua persistent audio objects
     void CleanupAllPersistentAudio()
     {
         // Find and destroy any persistent game over audio objects

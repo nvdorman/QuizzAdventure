@@ -55,6 +55,18 @@ public class PlayerController2D : MonoBehaviour
     
     [Header("Tags & Layers")]
     public string groundTag = "Ground";
+    
+    [Header("Game Over Integration")]
+    public GameOverManager gameOverManager;
+    public string[] dangerousTags = {"Water", "Lava", "Spike", "Poison", "Enemy", "Trap"};
+    public float gameOverDelay = 1.0f;
+    public bool enableDeathByFalling = true;
+    public float fallDeathY = -10f; // Y position below which player dies
+    
+    [Header("Death Effects")]
+    public AudioClip deathSound;
+    public Color deathFlashColor = Color.red;
+    public float deathFlashSpeed = 10f;
 
     public enum CharacterColor
     {
@@ -109,14 +121,15 @@ public class PlayerController2D : MonoBehaviour
     private string currentAnimationState = "";
     
     // Shooting variables
-    // private float nextFireTime = 0f;
     private int currentAmmo;
     private bool isReloading = false;
     private float reloadProgress = 0f;
     private Vector2 mousePosition;
     private Vector2 shootDirection = Vector2.right; // Initialize with default direction
-    // private bool lastMouseButtonState = false;
-    // private bool shootingEnabled = false; // Add flag to control shooting
+    
+    // Death system variables
+    private bool isDead = false;
+    private bool deathTriggered = false;
 
     // Animation States
     private const string IDLE = "Idle";
@@ -142,16 +155,24 @@ public class PlayerController2D : MonoBehaviour
             UpdateColliderToFitSprite(currentCharacterSprites.idle);
         }
 
+        // Auto-find GameOverManager if not assigned
+        if (gameOverManager == null)
+        {
+            gameOverManager = FindObjectOfType<GameOverManager>();
+            if (gameOverManager == null)
+            {
+                Debug.LogWarning("⚠️ GameOverManager not found! Player death won't trigger game over.");
+            }
+        }
+
         // Enable shooting after a short delay to prevent accidental shots on start
         StartCoroutine(EnableShootingAfterDelay());
-        // shootingEnabled = false; // Disable shooting completely
         Debug.Log("🚫 Shooting system disabled - dodge only mode!");
     }
     
     IEnumerator EnableShootingAfterDelay()
     {
         yield return new WaitForSeconds(0.1f); // Small delay
-        // shootingEnabled = true;
         Debug.Log("🔫 Shooting enabled!");
     }
 
@@ -250,7 +271,8 @@ public class PlayerController2D : MonoBehaviour
         lastGroundedTime = Time.time;
         currentSlowMotionFactor = 1f;
         isInSlowMotion = false;
-        // shootingEnabled = false; // Start with shooting disabled
+        isDead = false;
+        deathTriggered = false;
     }
 
     void UpdateColliderToFitSprite(Sprite sprite)
@@ -274,16 +296,144 @@ public class PlayerController2D : MonoBehaviour
 
     void Update()
     {
+        // Don't process input if player is dead
+        if (isDead) return;
+        
         HandleInput();
-        UpdateAiming(); // Move aiming before shooting
+        UpdateAiming();
         HandleShooting();
         UpdateAnimation();
         CheckGrounded();
+        
+        // Check for fall death
+        CheckFallDeath();
     }
 
     void FixedUpdate()
     {
+        // Don't move if player is dead
+        if (isDead) return;
+        
         HandleMovement();
+    }
+    
+    // NEW: Check if player has fallen too far
+    void CheckFallDeath()
+    {
+        if (enableDeathByFalling && !deathTriggered && transform.position.y < fallDeathY)
+        {
+            Debug.Log($"💀 Player fell too far! Y position: {transform.position.y}");
+            TriggerDeath("Fell too far");
+        }
+    }
+    
+    // NEW: Collision detection for dangerous objects
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        if (isDead || deathTriggered) return;
+        
+        if (IsDangerousObject(other.gameObject))
+        {
+            Debug.Log($"💀 Player hit dangerous object: {other.name} with tag: {other.tag}");
+            TriggerDeath($"Hit {other.tag}");
+        }
+    }
+    
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (isDead || deathTriggered) return;
+        
+        if (IsDangerousObject(collision.gameObject))
+        {
+            Debug.Log($"💀 Player collided with dangerous object: {collision.gameObject.name} with tag: {collision.gameObject.tag}");
+            TriggerDeath($"Collided with {collision.gameObject.tag}");
+        }
+    }
+    
+    // NEW: Check if an object is dangerous
+    bool IsDangerousObject(GameObject obj)
+    {
+        foreach (string dangerousTag in dangerousTags)
+        {
+            if (obj.CompareTag(dangerousTag))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    // NEW: Trigger death sequence
+    public void TriggerDeath(string cause = "Unknown")
+    {
+        if (deathTriggered) return;
+        
+        deathTriggered = true;
+        Debug.Log($"💀💀💀 PLAYER DEATH TRIGGERED! Cause: {cause}");
+        
+        // Play death sound
+        if (deathSound != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(deathSound);
+        }
+        
+        // Start death sequence
+        StartCoroutine(DeathSequence());
+    }
+    
+    // NEW: Death sequence coroutine
+    IEnumerator DeathSequence()
+    {
+        // Disable player controls
+        isDead = true;
+        
+        // Apply slow motion
+        SetSlowMotion(0.3f);
+        
+        // Start death flash effect
+        StartCoroutine(DeathFlashEffect());
+        
+        // Wait for death delay
+        yield return new WaitForSeconds(gameOverDelay);
+        
+        // Stop flash effect
+        StopAllCoroutines();
+        
+        // Reset sprite color
+        if (spriteRenderer != null)
+        {
+            spriteRenderer.color = originalColor;
+        }
+        
+        // Trigger Game Over
+        if (gameOverManager != null)
+        {
+            Debug.Log("💀 Calling GameOverManager.ActivateGameOver()");
+            gameOverManager.ActivateGameOver();
+        }
+        else
+        {
+            Debug.LogError("❌ GameOverManager is null! Cannot trigger game over!");
+        }
+    }
+    
+    // NEW: Death flash effect
+    IEnumerator DeathFlashEffect()
+    {
+        if (spriteRenderer == null) yield break;
+        
+        Color originalColor = spriteRenderer.color;
+        
+        while (true)
+        {
+            // Flash to death color
+            spriteRenderer.color = deathFlashColor;
+            yield return new WaitForSeconds(1f / deathFlashSpeed);
+            
+            // Flash back to original
+            spriteRenderer.color = originalColor;
+            yield return new WaitForSeconds(1f / deathFlashSpeed);
+        }
     }
 
     void HandleInput()
@@ -645,6 +795,7 @@ public class PlayerController2D : MonoBehaviour
     public bool IsDucking() { return isDucking; }
     public bool IsMoving() { return Mathf.Abs(movementInput) > 0.1f; }
     public bool CanJump() { return canJump; }
+    public bool IsDead() { return isDead; }
     
     // Shooting system getters
     public int GetCurrentAmmo() { return currentAmmo; }
@@ -741,6 +892,12 @@ public class PlayerController2D : MonoBehaviour
     {
         StartCoroutine(PlayHitAnimationOnShoot());
     }
+    
+    // NEW: Public method to trigger death from external scripts
+    public void Die(string cause = "External")
+    {
+        TriggerDeath(cause);
+    }
 
     // ==== UNITY LIFECYCLE METHODS ====
     void OnValidate()
@@ -797,6 +954,20 @@ public class PlayerController2D : MonoBehaviour
                 {
                     Gizmos.color = Color.blue;
                     Gizmos.DrawWireSphere(transform.position + Vector3.up * 3f, currentSlowMotionFactor * 0.3f);
+                }
+                
+                // Draw death zone indicator
+                if (enableDeathByFalling)
+                {
+                    Gizmos.color = Color.red;
+                    Gizmos.DrawLine(new Vector3(-1000, fallDeathY, 0), new Vector3(1000, fallDeathY, 0));
+                }
+                
+                // Draw death state indicator
+                if (isDead)
+                {
+                    Gizmos.color = Color.black;
+                    Gizmos.DrawWireSphere(transform.position + Vector3.up * 3.5f, 0.5f);
                 }
             }
         }
