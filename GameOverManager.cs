@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using System.Collections;
 
 public class GameOverManager : MonoBehaviour
 {
@@ -8,6 +9,7 @@ public class GameOverManager : MonoBehaviour
     public Button restartButton;
     public Button exitButton;
     public GameObject gameOverPanel;
+    public Canvas gameOverCanvas;
     
     [Header("Scene Settings")]
     public string mainMenuSceneName = "MainMenu";
@@ -35,6 +37,9 @@ public class GameOverManager : MonoBehaviour
         gameOverActivated = false;
         
         Debug.Log("🎮 GameOverManager Start - Setting up...");
+        
+        // PERBAIKAN: Force reset semua health systems di scene saat start
+        ForceResetAllHealthSystems();
         
         // Setup audio source
         SetupAudioSource();
@@ -79,6 +84,33 @@ public class GameOverManager : MonoBehaviour
         Debug.Log("🎮 GameOverManager initialized - ready for audio-safe restarts");
     }
     
+    // PERBAIKAN: Method untuk force reset SEMUA health systems di scene
+    void ForceResetAllHealthSystems()
+    {
+        Debug.Log("🔧🔧 GameOverManager - Force resetting all health systems in scene...");
+        
+        // Reset PlayerHealth components
+        PlayerHealth[] playerHealths = FindObjectsOfType<PlayerHealth>();
+        foreach (PlayerHealth ph in playerHealths)
+        {
+            Debug.Log($"🔧🔧 Force resetting PlayerHealth: {ph.name}");
+            ph.ResetHealth();
+        }
+        
+        // Reset HealthSystem components
+        HealthSystem[] healthSystems = FindObjectsOfType<HealthSystem>();
+        foreach (HealthSystem hs in healthSystems)
+        {
+            Debug.Log($"🔧🔧 Force resetting HealthSystem: {hs.name}");
+            hs.ResetHealth();
+        }
+        
+        // Force reset static variables
+        HealthSystem.ResetGameOverState();
+        
+        Debug.Log("🔧🔧 GameOverManager - All health systems force reset complete!");
+    }
+    
     // PERBAIKAN: Setup audio source yang persistent
     void SetupAudioSource()
     {
@@ -117,7 +149,7 @@ public class GameOverManager : MonoBehaviour
     // Method yang dipanggil dari HealthSystem
     public void ActivateGameOver()
     {
-        Debug.Log($"💀 ActivateGameOver called! gameOverActivated = {gameOverActivated}");
+        Debug.Log($"💀 GameOverManager ActivateGameOver called! gameOverActivated = {gameOverActivated}");
 
         gameOverActivated = true;
 
@@ -176,13 +208,31 @@ public class GameOverManager : MonoBehaviour
         ActivateGameOver();
     }
     
-    // PERBAIKAN UTAMA: RestartGame yang benar-benar restart scene
+    // PERBAIKAN UTAMA: RestartGame yang benar-benar restart scene dengan force reset
     public void RestartGame()
     {
-        Debug.Log("🔄 RestartGame called!");
+        Debug.Log("🔄🔄 GameOverManager RestartGame called!");
         
         // PERBAIKAN: Reset global state SEBELUM scene reload
+        Debug.Log("🔧🔧 Calling HealthSystem.ResetGameOverState()...");
         HealthSystem.ResetGameOverState();
+        
+        // PERBAIKAN: Reset semua PlayerHealth dan HealthSystem di scene SEBELUM reload
+        Debug.Log("🔧🔧 Finding and resetting all health systems before reload...");
+        
+        PlayerHealth[] playerHealths = FindObjectsOfType<PlayerHealth>();
+        foreach (PlayerHealth ph in playerHealths)
+        {
+            Debug.Log($"🔧🔧 Resetting PlayerHealth before reload: {ph.name}");
+            ph.ResetHealth();
+        }
+        
+        HealthSystem[] healthSystems = FindObjectsOfType<HealthSystem>();
+        foreach (HealthSystem hs in healthSystems)
+        {
+            Debug.Log($"🔧🔧 Resetting HealthSystem before reload: {hs.name}");
+            hs.ResetHealth();
+        }
         
         // Play button sound
         PlayButtonSound();
@@ -206,58 +256,45 @@ public class GameOverManager : MonoBehaviour
         if (gameOverPanel != null)
         {
             gameOverPanel.SetActive(false);
-            Debug.Log("🔧 Game over panel hidden before restart");
+            Debug.Log("🎮 GameOver panel hidden before scene reload");
         }
         
-        // Wait sebentar untuk button sound selesai
-        yield return new WaitForSeconds(0.3f);
+        if (gameOverCanvas != null)
+        {
+            gameOverCanvas.gameObject.SetActive(false);
+            Debug.Log("🎮 GameOver canvas hidden before scene reload");
+        }
         
-        Debug.Log("⏰ Audio delay completed, reloading scene...");
+        // Wait for button sound to finish
+        yield return new WaitForSeconds(0.2f);
         
-        // PERBAIKAN: Selalu reload scene untuk restart yang benar
+        // Get current scene name
+        string currentSceneName = SceneManager.GetActiveScene().name;
+        Debug.Log($"🔄 Reloading scene: {currentSceneName}");
+        
+        // Reload scene
         if (useCurrentScene)
         {
-            string currentSceneName = SceneManager.GetActiveScene().name;
-            Debug.Log($"🔄 Reloading current scene: {currentSceneName}");
             SceneManager.LoadScene(currentSceneName);
+        }
+        else if (!string.IsNullOrEmpty(specificSceneName))
+        {
+            SceneManager.LoadScene(specificSceneName);
         }
         else
         {
-            if (!string.IsNullOrEmpty(specificSceneName))
-            {
-                Debug.Log($"🔄 Loading specific scene: {specificSceneName}");
-                SceneManager.LoadScene(specificSceneName);
-            }
-            else
-            {
-                // Fallback ke current scene
-                string currentSceneName = SceneManager.GetActiveScene().name;
-                Debug.Log($"🔄 Fallback - reloading current scene: {currentSceneName}");
-                SceneManager.LoadScene(currentSceneName);
-            }
+            SceneManager.LoadScene(currentSceneName);
         }
     }
     
-    // PERBAIKAN: ExitToMainMenu dengan delay untuk audio
     public void ExitToMainMenu()
     {
         Debug.Log("🚪 ExitToMainMenu called!");
         
         PlayButtonSound();
         
-        // PERBAIKAN: Berikan waktu untuk sound selesai
-        StartCoroutine(ExitWithAudioDelay());
-    }
-    
-    // PERBAIKAN: Coroutine untuk exit dengan delay audio
-    System.Collections.IEnumerator ExitWithAudioDelay()
-    {
-        // Reset time scale dan flag
         Time.timeScale = 1f;
         gameOverActivated = false;
-        
-        // Wait sebentar untuk button sound selesai
-        yield return new WaitForSeconds(0.3f);
         
         if (!string.IsNullOrEmpty(mainMenuSceneName))
         {
@@ -275,7 +312,6 @@ public class GameOverManager : MonoBehaviour
         }
     }
     
-    // PERBAIKAN: PlayButtonSound dengan volume control
     private void PlayButtonSound()
     {
         if (audioSource != null && buttonClickSound != null)
@@ -285,7 +321,6 @@ public class GameOverManager : MonoBehaviour
         }
     }
     
-    // PUBLIC METHOD UNTUK RESET FLAG DARI LUAR (untuk restart manual tanpa scene reload)
     public void ResetGameOverState()
     {
         gameOverActivated = false;
@@ -300,7 +335,6 @@ public class GameOverManager : MonoBehaviour
         Debug.Log("🔄 GameOverManager state reset");
     }
     
-    // PERBAIKAN: Cleanup persistent audio saat aplikasi quit
     void OnApplicationQuit()
     {
         CleanupPersistentAudio();
@@ -309,12 +343,8 @@ public class GameOverManager : MonoBehaviour
     void OnDestroy()
     {
         Time.timeScale = 1f;
-        
-        // Jangan hapus persistent audio saat GameOverManager di-destroy
-        // karena mungkin masih ada sound yang sedang diputar
     }
     
-    // PERBAIKAN: Method untuk cleanup persistent audio
     public static void CleanupPersistentAudio()
     {
         if (persistentAudioObject != null)
@@ -329,44 +359,8 @@ public class GameOverManager : MonoBehaviour
         }
     }
     
-    // Method untuk debug
     public bool IsGameOverActivated()
     {
         return gameOverActivated;
-    }
-    
-    // PERBAIKAN: Method untuk test audio di editor
-    [ContextMenu("Test Game Over Sound")]
-    void TestGameOverSound()
-    {
-        PlayGameOverSound();
-    }
-    
-    [ContextMenu("Test Button Sound")]
-    void TestButtonSound()
-    {
-        PlayButtonSound();
-    }
-    
-    [ContextMenu("Cleanup Persistent Audio")]
-    void ManualCleanupAudio()
-    {
-        CleanupPersistentAudio();
-    }
-    
-    [ContextMenu("Test Full Restart")]
-    void TestFullRestart()
-    {
-        RestartGame();
-    }
-    
-    [ContextMenu("Debug Game Over State")]
-    void DebugGameOverState()
-    {
-        Debug.Log("=== GAME OVER MANAGER DEBUG ===");
-        Debug.Log($"gameOverActivated: {gameOverActivated}");
-        Debug.Log($"gameOverPanel active: {(gameOverPanel != null ? gameOverPanel.activeInHierarchy.ToString() : "NULL")}");
-        Debug.Log($"Time.timeScale: {Time.timeScale}");
-        Debug.Log("==============================");
     }
 }

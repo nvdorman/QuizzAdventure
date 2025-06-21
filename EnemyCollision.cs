@@ -12,8 +12,8 @@ public class EnemyCollision : MonoBehaviour
     public AudioClip hitSound;
     
     [Header("Collision Settings")]
-    public bool useCollisionDamage = true; // Collision2D damage
-    public bool useTriggerDamage = true;   // Trigger2D damage
+    public bool useCollisionDamage = true;
+    public bool useTriggerDamage = true;
     
     private bool hasDealtDamage = false;
     private AudioSource audioSource;
@@ -55,41 +55,7 @@ public class EnemyCollision : MonoBehaviour
     {
         if (other.CompareTag("Player"))
         {
-            // Try both HealthSystem and PlayerHealth
-            HealthSystem playerHealth = other.GetComponent<HealthSystem>();
-            PlayerHealth playerHealthAlt = other.GetComponent<PlayerHealth>();
-            
-            bool isInvulnerable = false;
-            
-            if (playerHealth != null)
-            {
-                // Check if IsInvulnerable method exists
-                try
-                {
-                    isInvulnerable = playerHealth.IsInvulnerable();
-                }
-                catch (System.Exception)
-                {
-                    // Method doesn't exist, assume not invulnerable
-                    isInvulnerable = false;
-                }
-                
-                if (!isInvulnerable)
-                {
-                    playerHealth.TakeDamage(contactDamage);
-                }
-            }
-            else if (playerHealthAlt != null)
-            {
-                isInvulnerable = playerHealthAlt.IsInvulnerable();
-                
-                if (!isInvulnerable)
-                {
-                    playerHealthAlt.TakeDamage(contactDamage);
-                }
-            }
-            
-            Debug.Log($"💥 Player hit by {gameObject.name}! Damage: {contactDamage}");
+            DamagePlayer(other.gameObject);
         }
     }
     
@@ -109,10 +75,57 @@ public class EnemyCollision : MonoBehaviour
     
     public void DamagePlayer(GameObject player)
     {
+        if (damageOnlyOnce && hasDealtDamage) return;
+        
+        bool isInvulnerable = false;
+        bool damageDealt = false;
+        
+        // PERBAIKAN: Try HealthSystem first
         HealthSystem playerHealth = player.GetComponent<HealthSystem>();
-        if (playerHealth != null && !playerHealth.IsInvulnerable())
+        if (playerHealth != null)
         {
-            playerHealth.TakeDamage(contactDamage);
+            // PERBAIKAN: Safe check untuk IsInvulnerable
+            try
+            {
+                isInvulnerable = playerHealth.IsInvulnerable();
+            }
+            catch (System.Exception)
+            {
+                // Method tidak ada, assume tidak invulnerable
+                isInvulnerable = false;
+            }
+            
+            if (!isInvulnerable)
+            {
+                playerHealth.TakeDamage(contactDamage);
+                damageDealt = true;
+            }
+        }
+        else
+        {
+            // PERBAIKAN: Try PlayerHealth as fallback
+            PlayerHealth playerHealthAlt = player.GetComponent<PlayerHealth>();
+            if (playerHealthAlt != null)
+            {
+                try
+                {
+                    isInvulnerable = playerHealthAlt.IsInvulnerable();
+                }
+                catch (System.Exception)
+                {
+                    isInvulnerable = false;
+                }
+                
+                if (!isInvulnerable)
+                {
+                    playerHealthAlt.TakeDamage(contactDamage);
+                    damageDealt = true;
+                }
+            }
+        }
+        
+        if (damageDealt)
+        {
             hasDealtDamage = true;
             
             if (audioSource != null && hitSound != null)
@@ -126,11 +139,11 @@ public class EnemyCollision : MonoBehaviour
                 Destroy(effect, 2f);
             }
             
-            Debug.Log($"Enemy {gameObject.name} memberikan {contactDamage} damage kepada player!");
+            Debug.Log($"💥 Enemy {gameObject.name} memberikan {contactDamage} damage kepada player!");
         }
         else
         {
-            Debug.Log($"Player tidak bisa menerima damage (mungkin invulnerable)");
+            Debug.Log($"🛡️ Player tidak bisa menerima damage (invulnerable atau tidak ada health system)");
         }
     }
     

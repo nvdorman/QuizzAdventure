@@ -6,66 +6,48 @@ public class PlayerHealth : MonoBehaviour
 {
     [Header("Health Settings")]
     public int maxHearts = 3;
-    public int hitsPerHeart = 2; // 2 hits per heart (full → half → empty)
+    public int hitsPerHeart = 4;
+    
+    [Header("UI")]
+    public Transform heartContainer;
+    public GameObject heartPrefab;
+    public Canvas gameOverCanvas;
+    
+    [Header("Effects")]
+    public GameObject damageEffect;
+    public Color damageFlashColor = Color.red;
+    public float flashDuration = 0.1f;
     public float invulnerabilityTime = 1.5f;
     
-    [Header("Health Sprites")]
-    public Sprite fullHeartSprite;
-    public Sprite halfHeartSprite;
-    public Sprite emptyHeartSprite;
-    
-    [Header("UI Settings")]
-    public Transform heartContainer; // Parent object untuk heart UI
-    public GameObject heartPrefab; // Prefab untuk single heart UI
-    public bool useWorldSpaceUI = false; // true = world space, false = screen space
-    
-    [Header("Damage Effects")]
-    public GameObject damageEffect;
-    public AudioClip damageSound;
-    public AudioClip deathSound;
-    public AudioClip healSound;
-    
-    [Header("Visual Effects")]
-    public Color damageFlashColor = Color.red;
-    public float flashDuration = 0.2f;
+    [Header("Camera Shake")]
     public bool shakeOnDamage = true;
-    public float shakeIntensity = 0.1f;
-    public float shakeDuration = 0.3f;
+    public float shakeDuration = 0.2f;
+    public float shakeIntensity = 0.3f;
+    public Camera playerCamera;
     
-    [Header("Death Settings")]
-    public bool useGameOverManager = true;
-    public GameObject gameOverCanvas;
+    [Header("Audio")]
+    public AudioClip damageSound;
+    public AudioClip healSound;
+    public AudioClip deathSound;
+    [Range(0f, 1f)]
+    public float soundVolume = 0.7f;
     
     // Private variables
     private int currentHealth;
+    private bool isDead = false;
     private bool isInvulnerable = false;
-    private bool isDead = false; // Add flag to prevent multiple death calls
-    private Image[] heartImages;
-    private AudioSource audioSource;
     private SpriteRenderer playerRenderer;
     private Color originalColor;
     private PlayerController2D playerController;
-    private Camera playerCamera;
+    private AudioSource audioSource;
     
     // Events
-    public System.Action<int, int> OnHealthChanged; // currentHealth, maxHealth
+    public System.Action<int, int> OnHealthChanged;
     public System.Action OnPlayerDeath;
-    public System.Action<int> OnDamageTaken; // damage amount
     
     void Start()
     {
-        InitializeComponents();
-        InitializeHealth();
-        CreateHeartUI();
-    }
-    
-    void InitializeComponents()
-    {
-        audioSource = GetComponent<AudioSource>();
-        if (audioSource == null)
-        {
-            audioSource = gameObject.AddComponent<AudioSource>();
-        }
+        currentHealth = maxHearts * hitsPerHeart;
         
         playerRenderer = GetComponent<SpriteRenderer>();
         if (playerRenderer != null)
@@ -74,131 +56,46 @@ public class PlayerHealth : MonoBehaviour
         }
         
         playerController = GetComponent<PlayerController2D>();
-        playerCamera = Camera.main;
+        
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+        }
+        audioSource.volume = soundVolume;
+        
         if (playerCamera == null)
         {
-            playerCamera = FindObjectOfType<Camera>();
+            playerCamera = Camera.main;
         }
-    }
-    
-    void InitializeHealth()
-    {
-        currentHealth = maxHearts * hitsPerHeart;
-        isDead = false; // Reset death flag
         
-        // Setup heart container if not assigned
-        if (heartContainer == null)
-        {
-            SetupHeartContainer();
-        }
+        CreateHeartUI();
+        Debug.Log($"PlayerHealth initialized - Health: {currentHealth}/{maxHearts * hitsPerHeart}");
     }
     
-    void SetupHeartContainer()
+    // PERBAIKAN: OnEnable untuk safety reset
+    void OnEnable()
     {
-        if (useWorldSpaceUI)
-        {
-            // Create world space UI above player
-            GameObject containerObj = new GameObject("HeartContainer");
-            containerObj.transform.SetParent(transform);
-            containerObj.transform.localPosition = Vector3.up * 2f;
-            
-            Canvas canvas = containerObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-            canvas.sortingOrder = 10;
-            containerObj.transform.localScale = Vector3.one * 0.01f;
-            
-            GameObject heartsParent = new GameObject("Hearts");
-            heartsParent.transform.SetParent(containerObj.transform);
-            heartsParent.transform.localPosition = Vector3.zero;
-            
-            // Add horizontal layout group
-            HorizontalLayoutGroup layoutGroup = heartsParent.AddComponent<HorizontalLayoutGroup>();
-            layoutGroup.spacing = 10f;
-            layoutGroup.childControlWidth = false;
-            layoutGroup.childControlHeight = false;
-            
-            heartContainer = heartsParent.transform;
-        }
-        else
-        {
-            // Find or create screen space canvas
-            Canvas screenCanvas = FindObjectOfType<Canvas>();
-            if (screenCanvas == null)
-            {
-                GameObject canvasObj = new GameObject("UI Canvas");
-                screenCanvas = canvasObj.AddComponent<Canvas>();
-                screenCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-                canvasObj.AddComponent<CanvasScaler>();
-                canvasObj.AddComponent<GraphicRaycaster>();
-            }
-            
-            GameObject containerObj = new GameObject("HeartContainer");
-            containerObj.transform.SetParent(screenCanvas.transform);
-            
-            RectTransform rectTransform = containerObj.AddComponent<RectTransform>();
-            rectTransform.anchorMin = new Vector2(0, 1);
-            rectTransform.anchorMax = new Vector2(0, 1);
-            rectTransform.pivot = new Vector2(0, 1);
-            rectTransform.anchoredPosition = new Vector2(20, -20);
-            
-            // Add horizontal layout group
-            HorizontalLayoutGroup layoutGroup = containerObj.AddComponent<HorizontalLayoutGroup>();
-            layoutGroup.spacing = 5f;
-            layoutGroup.childControlWidth = false;
-            layoutGroup.childControlHeight = false;
-            
-            heartContainer = containerObj.transform;
-        }
+        Debug.Log($"🔧🔧 PlayerHealth OnEnable - Force reset isDead flag from {isDead} to false");
+        isDead = false; // Safety reset setiap kali object enabled
+        isInvulnerable = false;
     }
     
     void CreateHeartUI()
     {
+        if (heartContainer == null || heartPrefab == null) return;
+        
         // Clear existing hearts
         foreach (Transform child in heartContainer)
         {
-            DestroyImmediate(child.gameObject);
+            Destroy(child.gameObject);
         }
         
-        // Create heart images array
-        heartImages = new Image[maxHearts];
-        
+        // Create heart UI
         for (int i = 0; i < maxHearts; i++)
         {
-            GameObject heartObj;
-            
-            if (heartPrefab != null)
-            {
-                heartObj = Instantiate(heartPrefab, heartContainer);
-            }
-            else
-            {
-                // Create default heart UI
-                heartObj = new GameObject($"Heart_{i}");
-                heartObj.transform.SetParent(heartContainer);
-                
-                Image heartImage = heartObj.AddComponent<Image>();
-                heartImage.sprite = fullHeartSprite;
-                heartImage.preserveAspect = true;
-                
-                if (useWorldSpaceUI)
-                {
-                    RectTransform rectTransform = heartImage.rectTransform;
-                    rectTransform.sizeDelta = new Vector2(100, 100);
-                }
-                else
-                {
-                    RectTransform rectTransform = heartImage.rectTransform;
-                    rectTransform.sizeDelta = new Vector2(50, 50);
-                }
-            }
-            
-            heartImages[i] = heartObj.GetComponent<Image>();
-            if (heartImages[i] == null)
-            {
-                heartImages[i] = heartObj.AddComponent<Image>();
-            }
-            
-            heartImages[i].sprite = fullHeartSprite;
+            GameObject heart = Instantiate(heartPrefab, heartContainer);
+            // Heart prefab should have multiple sprites for different states
         }
         
         UpdateHeartUI();
@@ -206,44 +103,49 @@ public class PlayerHealth : MonoBehaviour
     
     void UpdateHeartUI()
     {
-        for (int i = 0; i < maxHearts; i++)
+        if (heartContainer == null) return;
+        
+        for (int i = 0; i < heartContainer.childCount; i++)
         {
-            if (heartImages[i] == null) continue;
+            Transform heart = heartContainer.GetChild(i);
+            Image heartImage = heart.GetComponent<Image>();
             
-            int heartIndex = i;
-            int healthForThisHeart = Mathf.Max(0, currentHealth - (heartIndex * hitsPerHeart));
-            
-            if (healthForThisHeart >= hitsPerHeart)
+            if (heartImage != null)
             {
-                // Full heart
-                heartImages[i].sprite = fullHeartSprite;
-            }
-            else if (healthForThisHeart > 0)
-            {
-                // Half heart
-                heartImages[i].sprite = halfHeartSprite;
-            }
-            else
-            {
-                // Empty heart
-                heartImages[i].sprite = emptyHeartSprite;
+                int heartValue = (i + 1) * hitsPerHeart;
+                int remainingHits = Mathf.Max(0, currentHealth - (i * hitsPerHeart));
+                
+                if (remainingHits <= 0)
+                {
+                    heartImage.color = Color.black; // Empty heart
+                }
+                else if (remainingHits < hitsPerHeart)
+                {
+                    heartImage.color = Color.yellow; // Damaged heart
+                }
+                else
+                {
+                    heartImage.color = Color.red; // Full heart
+                }
             }
         }
     }
     
     public void TakeDamage(int damage = 1)
     {
-        if (isInvulnerable || currentHealth <= 0 || isDead) return;
+        Debug.Log($"⚔️⚔️ PlayerHealth TakeDamage called - Damage: {damage}, isDead: {isDead}, isInvulnerable: {isInvulnerable}");
+        
+        if (isInvulnerable || isDead)
+        {
+            Debug.Log($"🚫 Damage ignored - Invulnerable: {isInvulnerable}, Dead: {isDead}");
+            return;
+        }
         
         currentHealth -= damage;
         currentHealth = Mathf.Max(0, currentHealth);
         
-        // Trigger events
-        OnDamageTaken?.Invoke(damage);
-        OnHealthChanged?.Invoke(currentHealth, maxHearts * hitsPerHeart);
-        
-        // Update UI
         UpdateHeartUI();
+        OnHealthChanged?.Invoke(currentHealth, maxHearts * hitsPerHeart);
         
         // Play damage sound
         if (audioSource != null && damageSound != null)
@@ -251,14 +153,17 @@ public class PlayerHealth : MonoBehaviour
             audioSource.PlayOneShot(damageSound);
         }
         
-        // Visual effects
+        // Start damage effects
         StartCoroutine(DamageEffects());
         
         // Start invulnerability
-        StartCoroutine(InvulnerabilityCoroutine());
+        if (!isDead)
+        {
+            StartCoroutine(InvulnerabilityCoroutine());
+        }
         
-        // Check if dead
-        if (currentHealth <= 0)
+        // Check for death
+        if (currentHealth <= 0 && !isDead)
         {
             Die();
         }
@@ -357,8 +262,10 @@ public class PlayerHealth : MonoBehaviour
         Debug.Log($"Player healed {healAmount}! Health: {currentHealth}/{maxHearts * hitsPerHeart}");
     }
     
+    // PERBAIKAN: Tambah debug log untuk track Die() calls
     void Die()
     {
+        Debug.Log($"💀💀 PlayerHealth Die() called - isDead check: {isDead}");
         if (isDead) return; // Prevent multiple death calls
         
         isDead = true;
@@ -387,14 +294,14 @@ public class PlayerHealth : MonoBehaviour
         // Show game over with delay to allow death sound/animation
         StartCoroutine(ShowGameOverWithDelay());
         
-        Debug.Log("Player died!");
+        Debug.Log("💀 PlayerHealth - Player died!");
     }
     
     IEnumerator ShowGameOverWithDelay()
     {
         yield return new WaitForSeconds(1f); // Wait for death effects
     
-        Debug.Log("💀 Starting game over sequence...");
+        Debug.Log("💀 PlayerHealth - Starting game over sequence...");
         
         // PERBAIKAN: Multi-layered approach untuk memastikan game over muncul
         bool gameOverShown = false;
@@ -403,7 +310,7 @@ public class PlayerHealth : MonoBehaviour
         GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
         if (gameOverManager != null)
         {
-            Debug.Log("✅ GameOverManager found, activating...");
+            Debug.Log("✅ PlayerHealth - GameOverManager found, activating...");
             gameOverManager.ActivateGameOver();
             gameOverShown = true;
         }
@@ -411,7 +318,7 @@ public class PlayerHealth : MonoBehaviour
         // Method 2: Canvas yang di-assign
         if (!gameOverShown && gameOverCanvas != null)
         {
-            Debug.Log("🔄 Using assigned canvas...");
+            Debug.Log("🔄 PlayerHealth - Using assigned canvas...");
             gameOverCanvas.SetActive(true);
             
             GameOverManager canvasManager = gameOverCanvas.GetComponent<GameOverManager>();
@@ -429,7 +336,7 @@ public class PlayerHealth : MonoBehaviour
         // Method 3: Cari canvas game over di scene
         if (!gameOverShown)
         {
-            Debug.Log("🔍 Searching for game over canvas...");
+            Debug.Log("🔍 PlayerHealth - Searching for game over canvas...");
             Canvas[] canvases = FindObjectsOfType<Canvas>();
             foreach (Canvas canvas in canvases)
             {
@@ -440,7 +347,7 @@ public class PlayerHealth : MonoBehaviour
                     canvas.gameObject.SetActive(true);
                     Time.timeScale = 0f;
                     gameOverShown = true;
-                    Debug.Log($"✅ Found and activated canvas: {canvas.name}");
+                    Debug.Log($"✅ PlayerHealth - Found and activated canvas: {canvas.name}");
                     break;
                 }
             }
@@ -448,17 +355,19 @@ public class PlayerHealth : MonoBehaviour
         
         if (!gameOverShown)
         {
-            Debug.LogError("❌ CRITICAL ERROR: No game over system found!");
+            Debug.LogError("❌ PlayerHealth - CRITICAL ERROR: No game over system found!");
         }
         else
         {
-            Debug.Log("✅ Game over displayed successfully!");
+            Debug.Log("✅ PlayerHealth - Game over displayed successfully!");
         }
     }
     
-    // Public method to reset player health (useful for respawn/restart)
+    // PERBAIKAN: ResetHealth dengan debug logging
     public void ResetHealth()
     {
+        Debug.Log($"🔧🔧 PlayerHealth ResetHealth called - BEFORE: isDead = {isDead}, Health = {currentHealth}");
+        
         isDead = false;
         currentHealth = maxHearts * hitsPerHeart;
         isInvulnerable = false;
@@ -485,7 +394,8 @@ public class PlayerHealth : MonoBehaviour
             playerRenderer.color = originalColor;
         }
         
-        Debug.Log("Player health reset!");
+        Debug.Log($"🔧🔧 PlayerHealth ResetHealth complete - AFTER: isDead = {isDead}, Health = {currentHealth}");
+        Debug.Log("✅ PlayerHealth reset complete!");
     }
     
     // Public methods for external use
@@ -509,31 +419,7 @@ public class PlayerHealth : MonoBehaviour
         currentHealth = maxHearts * hitsPerHeart;
         UpdateHeartUI();
         OnHealthChanged?.Invoke(currentHealth, maxHearts * hitsPerHeart);
-    }
-    
-    // Method untuk testing di editor
-    [ContextMenu("Test Damage")]
-    void TestDamage()
-    {
-        TakeDamage(1);
-    }
-    
-    [ContextMenu("Test Heal")]
-    void TestHeal()
-    {
-        Heal(1);
-    }
-    
-    [ContextMenu("Test Death")]
-    void TestDeath()
-    {
-        currentHealth = 1;
-        TakeDamage(1);
-    }
-    
-    [ContextMenu("Reset Health")]
-    void TestResetHealth()
-    {
-        ResetHealth();
+        
+        Debug.Log("Player fully healed!");
     }
 }

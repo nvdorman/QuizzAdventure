@@ -3,26 +3,24 @@ using System.Collections;
 
 public class HealthSystem : MonoBehaviour
 {
-    [Header("One Hit Kill Settings")]
-    public bool oneHitKillMode = true;
-    
     [Header("Health Settings")]
-    public int maxHealth = 1;
-    public int currentHealth;
+    public int maxHealth = 100;
+    public bool oneHitKillMode = false;
+    
+    [Header("Game Over")]
+    public Canvas gameOverCanvas;
     
     [Header("Audio")]
     public AudioClip deathSound;
+    public AudioSource audioSource;
     
-    [Header("Game Over Settings")]
-    public Canvas gameOverCanvas;
-    
-    private SpriteRenderer spriteRenderer;
-    private AudioSource audioSource;
+    // Private variables
+    private int currentHealth;
+    private bool isDead = false;
+    private bool gameOverTriggered = false;
     private bool isInvulnerable = false;
-    private bool isDead = false; // Prevent multiple death calls
-    private bool gameOverTriggered = false; // Prevent multiple game over triggers
     
-    // PERBAIKAN: Static variable dengan proper reset
+    // Static variable untuk global game over state
     private static bool globalGameOverActive = false;
     
     // Events
@@ -31,55 +29,42 @@ public class HealthSystem : MonoBehaviour
     
     void Start()
     {
-        // PERBAIKAN: Reset semua flags saat Start (scene reload)
+        Debug.Log("🎮 HealthSystem Start called");
+        
+        // PERBAIKAN: Reset flags di Start()
         isDead = false;
         gameOverTriggered = false;
-        globalGameOverActive = false; // PENTING: Reset static variable juga
+        globalGameOverActive = false;
         isInvulnerable = false;
         
         currentHealth = oneHitKillMode ? 1 : maxHealth;
-        spriteRenderer = GetComponent<SpriteRenderer>();
-        audioSource = GetComponent<AudioSource>();
         
         if (audioSource == null)
         {
-            audioSource = gameObject.AddComponent<AudioSource>();
-        }
-        
-        // Auto-find game over canvas if not assigned
-        if (gameOverCanvas == null)
-        {
-            GameObject canvasObj = GameObject.Find("GameOverCanvas");
-            if (canvasObj != null)
+            audioSource = GetComponent<AudioSource>();
+            if (audioSource == null)
             {
-                gameOverCanvas = canvasObj.GetComponent<Canvas>();
-                Debug.Log("🔍 Found GameOverCanvas automatically");
-            }
-            else 
-            {
-                Debug.LogWarning("⚠️ GameOverCanvas not found! Please assign manually.");
+                audioSource = gameObject.AddComponent<AudioSource>();
             }
         }
         
-        // Notify UI of initial health
         OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
         
-        Debug.Log($"💀 HealthSystem Start - OneHit: {oneHitKillMode}, Health: {currentHealth}/{GetMaxHealth()}");
+        Debug.Log($"🎮 HealthSystem initialized - Health: {currentHealth}/{GetMaxHealth()}, OneHitKill: {oneHitKillMode}");
         Debug.Log($"🔧 Flags reset - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
     }
     
+    // PERBAIKAN: OnEnable untuk safety reset
     void OnEnable()
     {
-        // PERBAIKAN: Reset flags lebih agresif
-        Debug.Log("🔄 HealthSystem OnEnable - resetting flags");
+        Debug.Log($"🔧🔧 HealthSystem OnEnable - Force reset isDead flag from {isDead} to false");
         isDead = false;
         gameOverTriggered = false;
-        // Tidak reset globalGameOverActive di sini karena bisa conflict dengan Start()
     }
     
     public void TakeDamage(int damage)
     {
-        Debug.Log($"⚔️ TakeDamage called - Damage: {damage}");
+        Debug.Log($"⚔️⚔️ HealthSystem TakeDamage called - Damage: {damage}");
         Debug.Log($"🔍 Current state - Invul: {isInvulnerable}, Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
         
         // PERBAIKAN: Lebih permissive check
@@ -119,9 +104,10 @@ public class HealthSystem : MonoBehaviour
         }
     }
     
+    // PERBAIKAN: Die method dengan debug logging
     void Die()
     {
-        Debug.Log($"💀 Die() called - checking flags...");
+        Debug.Log($"💀💀 HealthSystem Die() called - isDead check: {isDead}");
         Debug.Log($"🔍 Death state - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
         
         // PERBAIKAN: Hanya cek isDead untuk prevent double death
@@ -145,7 +131,7 @@ public class HealthSystem : MonoBehaviour
             Debug.Log("🎵 Death sound played");
         }
         
-        Debug.Log("💀 Player died! Game Over!");
+        Debug.Log("💀 HealthSystem - Player died! Game Over!");
         OnDeath?.Invoke();
         
         // Disable player controls immediately
@@ -162,10 +148,10 @@ public class HealthSystem : MonoBehaviour
     
     System.Collections.IEnumerator GameOverDelay()
     {
-        Debug.Log("⏰ GameOverDelay started - waiting 1 second...");
+        Debug.Log("⏰ HealthSystem - GameOverDelay started - waiting 1 second...");
         yield return new WaitForSeconds(1f); // Short delay for death sound
         
-        Debug.Log("⏰ Game over delay completed, showing game over panel...");
+        Debug.Log("⏰ HealthSystem - Game over delay completed, showing game over panel...");
         
         // PERBAIKAN: Coba semua metode untuk show game over
         bool gameOverShown = false;
@@ -176,12 +162,12 @@ public class HealthSystem : MonoBehaviour
             if (!gameOverCanvas.gameObject.activeInHierarchy)
             {
                 gameOverCanvas.gameObject.SetActive(true);
-                Debug.Log("✅ Game Over Canvas activated!");
+                Debug.Log("✅ HealthSystem - Game Over Canvas activated!");
                 gameOverShown = true;
             }
             else
             {
-                Debug.Log("ℹ️ Game Over Canvas already active");
+                Debug.Log("ℹ️ HealthSystem - Game Over Canvas already active");
                 gameOverShown = true;
             }
         }
@@ -193,7 +179,7 @@ public class HealthSystem : MonoBehaviour
             if (gameOverManager != null)
             {
                 gameOverManager.ActivateGameOver();
-                Debug.Log("✅ GameOverManager activated!");
+                Debug.Log("✅ HealthSystem - GameOverManager activated!");
                 gameOverShown = true;
             }
         }
@@ -207,7 +193,7 @@ public class HealthSystem : MonoBehaviour
                 if (canvas.name.ToLower().Contains("gameover"))
                 {
                     canvas.gameObject.SetActive(true);
-                    Debug.Log($"✅ Found and activated canvas: {canvas.name}");
+                    Debug.Log($"✅ HealthSystem - Found and activated canvas: {canvas.name}");
                     gameOverShown = true;
                     break;
                 }
@@ -216,7 +202,7 @@ public class HealthSystem : MonoBehaviour
         
         if (!gameOverShown)
         {
-            Debug.LogError("❌ No Game Over system found! Please check setup.");
+            Debug.LogError("❌ HealthSystem - No Game Over system found! Please check setup.");
         }
     }
     
@@ -224,7 +210,7 @@ public class HealthSystem : MonoBehaviour
     public static void ResetGameOverState()
     {
         globalGameOverActive = false;
-        Debug.Log("🔄 Global game over state reset"); // PERBAIKAN: Debug.Log bukan Debug.log
+        Debug.Log("🔄 HealthSystem - Global game over state reset");
     }
     
     // Add IsInvulnerable method for compatibility
@@ -238,10 +224,11 @@ public class HealthSystem : MonoBehaviour
     public int GetMaxHealth() { return oneHitKillMode ? 1 : maxHealth; }
     public bool IsDead() { return isDead; }
     
-    // PERBAIKAN: Reset for new game dengan lebih comprehensive reset
+    // PERBAIKAN: Reset for new game dengan lebih comprehensive reset dan debug logging
     public void ResetHealth()
     {
-        Debug.Log("🔄 ResetHealth called - resetting all flags and health");
+        Debug.Log($"🔧🔧 HealthSystem ResetHealth called - BEFORE: isDead = {isDead}, Health = {currentHealth}");
+        Debug.Log("🔄 HealthSystem ResetHealth called - resetting all flags and health");
         
         isDead = false;
         gameOverTriggered = false;
@@ -260,6 +247,7 @@ public class HealthSystem : MonoBehaviour
         // Notify UI
         OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
         
+        Debug.Log($"🔧🔧 HealthSystem ResetHealth complete - AFTER: isDead = {isDead}, Health = {currentHealth}");
         Debug.Log($"🔄 Health system reset - Health: {currentHealth}/{GetMaxHealth()}");
         Debug.Log($"🔧 All flags reset - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
     }
