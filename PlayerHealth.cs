@@ -319,7 +319,7 @@ public class PlayerHealth : MonoBehaviour
         if (!gameOverShown && gameOverCanvas != null)
         {
             Debug.Log("🔄 PlayerHealth - Using assigned canvas...");
-            gameOverCanvas.SetActive(true);
+            gameOverCanvas.gameObject.SetActive(true); // PERBAIKAN: Tambah .gameObject
             
             GameOverManager canvasManager = gameOverCanvas.GetComponent<GameOverManager>();
             if (canvasManager != null)

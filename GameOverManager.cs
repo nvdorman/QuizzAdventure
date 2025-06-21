@@ -208,83 +208,52 @@ public class GameOverManager : MonoBehaviour
         ActivateGameOver();
     }
     
-    // PERBAIKAN UTAMA: RestartGame yang benar-benar restart scene dengan force reset
+    // PERBAIKAN UTAMA: RestartGame yang benar-benar restart scene LANGSUNG
     public void RestartGame()
     {
         Debug.Log("🔄🔄 GameOverManager RestartGame called!");
         
-        // PERBAIKAN: Reset global state SEBELUM scene reload
-        Debug.Log("🔧🔧 Calling HealthSystem.ResetGameOverState()...");
-        HealthSystem.ResetGameOverState();
-        
-        // PERBAIKAN: Reset semua PlayerHealth dan HealthSystem di scene SEBELUM reload
-        Debug.Log("🔧🔧 Finding and resetting all health systems before reload...");
-        
-        PlayerHealth[] playerHealths = FindObjectsOfType<PlayerHealth>();
-        foreach (PlayerHealth ph in playerHealths)
-        {
-            Debug.Log($"🔧🔧 Resetting PlayerHealth before reload: {ph.name}");
-            ph.ResetHealth();
-        }
-        
-        HealthSystem[] healthSystems = FindObjectsOfType<HealthSystem>();
-        foreach (HealthSystem hs in healthSystems)
-        {
-            Debug.Log($"🔧🔧 Resetting HealthSystem before reload: {hs.name}");
-            hs.ResetHealth();
-        }
-        
         // Play button sound
         PlayButtonSound();
         
-        // PERBAIKAN: Panggil coroutine untuk restart dengan delay
-        StartCoroutine(RestartWithAudioDelay());
-    }
-    
-    // PERBAIKAN: Coroutine untuk restart dengan delay audio
-    System.Collections.IEnumerator RestartWithAudioDelay()
-    {
-        Debug.Log("⏰ RestartWithAudioDelay started...");
-        
-        // PERBAIKAN: Reset semua flags dulu
-        gameOverActivated = false;
-        
-        // Reset time scale untuk memungkinkan coroutine berjalan
+        // PERBAIKAN: Reset time scale IMMEDIATELY untuk memungkinkan scene reload
         Time.timeScale = 1f;
         
-        // PERBAIKAN: Hide panel sebelum reload
+        // PERBAIKAN: Cleanup persistent audio sebelum reload
+        CleanupPersistentAudio();
+        
+        // PERBAIKAN: Langsung reload scene tanpa delay atau reset kompleks
+        StartCoroutine(ImmediateSceneReload());
+    }
+    
+    // PERBAIKAN: Coroutine untuk immediate scene reload
+    System.Collections.IEnumerator ImmediateSceneReload()
+    {
+        Debug.Log("🔄 Immediate scene reload starting...");
+        
+        // Reset flags
+        gameOverActivated = false;
+        
+        // Hide UI immediately
         if (gameOverPanel != null)
         {
             gameOverPanel.SetActive(false);
-            Debug.Log("🎮 GameOver panel hidden before scene reload");
         }
         
         if (gameOverCanvas != null)
         {
             gameOverCanvas.gameObject.SetActive(false);
-            Debug.Log("🎮 GameOver canvas hidden before scene reload");
         }
         
-        // Wait for button sound to finish
-        yield return new WaitForSeconds(0.2f);
+        // Very short delay for button sound
+        yield return new WaitForSeconds(0.1f);
         
-        // Get current scene name
+        // Get current scene and reload immediately
         string currentSceneName = SceneManager.GetActiveScene().name;
-        Debug.Log($"🔄 Reloading scene: {currentSceneName}");
+        Debug.Log($"🔄 Reloading scene NOW: {currentSceneName}");
         
-        // Reload scene
-        if (useCurrentScene)
-        {
-            SceneManager.LoadScene(currentSceneName);
-        }
-        else if (!string.IsNullOrEmpty(specificSceneName))
-        {
-            SceneManager.LoadScene(specificSceneName);
-        }
-        else
-        {
-            SceneManager.LoadScene(currentSceneName);
-        }
+        // PERBAIKAN: Force reload scene - ini akan reset SEMUA objects
+        SceneManager.LoadScene(currentSceneName);
     }
     
     public void ExitToMainMenu()
@@ -295,6 +264,9 @@ public class GameOverManager : MonoBehaviour
         
         Time.timeScale = 1f;
         gameOverActivated = false;
+        
+        // Cleanup audio
+        CleanupPersistentAudio();
         
         if (!string.IsNullOrEmpty(mainMenuSceneName))
         {
@@ -343,6 +315,7 @@ public class GameOverManager : MonoBehaviour
     void OnDestroy()
     {
         Time.timeScale = 1f;
+        CleanupPersistentAudio();
     }
     
     public static void CleanupPersistentAudio()
