@@ -22,7 +22,7 @@ public class HealthSystem : MonoBehaviour
     private bool isDead = false; // Prevent multiple death calls
     private bool gameOverTriggered = false; // Prevent multiple game over triggers
     
-    // Static variable to prevent multiple game overs
+    // PERBAIKAN: Static variable dengan proper reset
     private static bool globalGameOverActive = false;
     
     // Events
@@ -31,6 +31,12 @@ public class HealthSystem : MonoBehaviour
     
     void Start()
     {
+        // PERBAIKAN: Reset semua flags saat Start (scene reload)
+        isDead = false;
+        gameOverTriggered = false;
+        globalGameOverActive = false; // PENTING: Reset static variable juga
+        isInvulnerable = false;
+        
         currentHealth = oneHitKillMode ? 1 : maxHealth;
         spriteRenderer = GetComponent<SpriteRenderer>();
         audioSource = GetComponent<AudioSource>();
@@ -47,33 +53,47 @@ public class HealthSystem : MonoBehaviour
             if (canvasObj != null)
             {
                 gameOverCanvas = canvasObj.GetComponent<Canvas>();
+                Debug.Log("🔍 Found GameOverCanvas automatically");
+            }
+            else 
+            {
+                Debug.LogWarning("⚠️ GameOverCanvas not found! Please assign manually.");
             }
         }
-        
-        // Reset flags
-        isDead = false;
-        gameOverTriggered = false;
         
         // Notify UI of initial health
         OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
         
-        Debug.Log("💀 One Hit Kill Mode ACTIVATED - Be careful!");
+        Debug.Log($"💀 HealthSystem Start - OneHit: {oneHitKillMode}, Health: {currentHealth}/{GetMaxHealth()}");
+        Debug.Log($"🔧 Flags reset - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
     }
     
     void OnEnable()
     {
-        // Reset death flags when object is enabled
+        // PERBAIKAN: Reset flags lebih agresif
+        Debug.Log("🔄 HealthSystem OnEnable - resetting flags");
         isDead = false;
         gameOverTriggered = false;
+        // Tidak reset globalGameOverActive di sini karena bisa conflict dengan Start()
     }
     
     public void TakeDamage(int damage)
     {
-        // Prevent multiple damage calls if already dead or game over triggered
-        if (isInvulnerable || isDead || gameOverTriggered || globalGameOverActive)
+        Debug.Log($"⚔️ TakeDamage called - Damage: {damage}");
+        Debug.Log($"🔍 Current state - Invul: {isInvulnerable}, Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
+        
+        // PERBAIKAN: Lebih permissive check
+        if (isInvulnerable || isDead)
         {
-            Debug.Log($"🚫 Damage ignored - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
+            Debug.Log($"🚫 Damage ignored - Invulnerable: {isInvulnerable}, Dead: {isDead}");
             return;
+        }
+        
+        // PERBAIKAN: Tambahan check untuk global game over, tapi dengan warning
+        if (globalGameOverActive)
+        {
+            Debug.LogWarning($"⚠️ Global game over active, but taking damage anyway (might be restart bug)");
+            // Jangan return, biarkan damage berlanjut untuk debug
         }
         
         if (oneHitKillMode)
@@ -101,10 +121,13 @@ public class HealthSystem : MonoBehaviour
     
     void Die()
     {
-        // Multiple protection against double death
-        if (isDead || gameOverTriggered || globalGameOverActive)
+        Debug.Log($"💀 Die() called - checking flags...");
+        Debug.Log($"🔍 Death state - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
+        
+        // PERBAIKAN: Hanya cek isDead untuk prevent double death
+        if (isDead)
         {
-            Debug.Log($"🚫 Death ignored - already processed");
+            Debug.Log($"🚫 Death ignored - already dead");
             return;
         }
         
@@ -113,10 +136,13 @@ public class HealthSystem : MonoBehaviour
         gameOverTriggered = true;
         globalGameOverActive = true;
         
+        Debug.Log($"💀 Death flags set - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
+        
         // Play death sound
         if (audioSource != null && deathSound != null)
         {
             audioSource.PlayOneShot(deathSound);
+            Debug.Log("🎵 Death sound played");
         }
         
         Debug.Log("💀 Player died! Game Over!");
@@ -127,6 +153,7 @@ public class HealthSystem : MonoBehaviour
         if (playerController != null)
         {
             playerController.enabled = false;
+            Debug.Log("🎮 Player controller disabled");
         }
         
         // Show game over immediately with protection
@@ -135,48 +162,69 @@ public class HealthSystem : MonoBehaviour
     
     System.Collections.IEnumerator GameOverDelay()
     {
+        Debug.Log("⏰ GameOverDelay started - waiting 1 second...");
         yield return new WaitForSeconds(1f); // Short delay for death sound
-        
-        // Double check that game over hasn't been triggered already
-        if (!gameOverTriggered)
-        {
-            Debug.Log("🚫 Game over delay cancelled - already triggered");
-            yield break;
-        }
         
         Debug.Log("⏰ Game over delay completed, showing game over panel...");
         
-        // Show game over canvas
-        if (gameOverCanvas != null && !gameOverCanvas.gameObject.activeInHierarchy)
+        // PERBAIKAN: Coba semua metode untuk show game over
+        bool gameOverShown = false;
+        
+        // Method 1: Canvas langsung
+        if (gameOverCanvas != null)
         {
-            gameOverCanvas.gameObject.SetActive(true);
-            Debug.Log("✅ Game Over Canvas activated!");
+            if (!gameOverCanvas.gameObject.activeInHierarchy)
+            {
+                gameOverCanvas.gameObject.SetActive(true);
+                Debug.Log("✅ Game Over Canvas activated!");
+                gameOverShown = true;
+            }
+            else
+            {
+                Debug.Log("ℹ️ Game Over Canvas already active");
+                gameOverShown = true;
+            }
         }
-        else if (gameOverCanvas != null && gameOverCanvas.gameObject.activeInHierarchy)
+        
+        // Method 2: GameOverManager fallback
+        if (!gameOverShown)
         {
-            Debug.Log("ℹ️ Game Over Canvas already active");
-        }
-        else
-        {
-            // Fallback - try to find GameOverManager
             GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
             if (gameOverManager != null)
             {
                 gameOverManager.ActivateGameOver();
                 Debug.Log("✅ GameOverManager activated!");
+                gameOverShown = true;
             }
-            else
+        }
+        
+        // Method 3: Search for any Canvas with "GameOver" in name
+        if (!gameOverShown)
+        {
+            Canvas[] allCanvases = FindObjectsOfType<Canvas>();
+            foreach (Canvas canvas in allCanvases)
             {
-                Debug.LogError("❌ No Game Over system found!");
+                if (canvas.name.ToLower().Contains("gameover"))
+                {
+                    canvas.gameObject.SetActive(true);
+                    Debug.Log($"✅ Found and activated canvas: {canvas.name}");
+                    gameOverShown = true;
+                    break;
+                }
             }
+        }
+        
+        if (!gameOverShown)
+        {
+            Debug.LogError("❌ No Game Over system found! Please check setup.");
         }
     }
     
-    // Public method to reset the game over state (for restart)
+    // PERBAIKAN: Public method to reset the game over state (for restart)
     public static void ResetGameOverState()
     {
         globalGameOverActive = false;
-        Debug.log("🔄 Global game over state reset");
+        Debug.Log("🔄 Global game over state reset"); // PERBAIKAN: Debug.Log bukan Debug.log
     }
     
     // Add IsInvulnerable method for compatibility
@@ -190,12 +238,14 @@ public class HealthSystem : MonoBehaviour
     public int GetMaxHealth() { return oneHitKillMode ? 1 : maxHealth; }
     public bool IsDead() { return isDead; }
     
-    // Reset for new game
+    // PERBAIKAN: Reset for new game dengan lebih comprehensive reset
     public void ResetHealth()
     {
+        Debug.Log("🔄 ResetHealth called - resetting all flags and health");
+        
         isDead = false;
         gameOverTriggered = false;
-        globalGameOverActive = false;
+        globalGameOverActive = false; // PENTING: Reset static variable
         isInvulnerable = false;
         currentHealth = oneHitKillMode ? 1 : maxHealth;
         
@@ -204,18 +254,21 @@ public class HealthSystem : MonoBehaviour
         if (playerController != null)
         {
             playerController.enabled = true;
+            Debug.Log("🎮 Player controller re-enabled");
         }
         
         // Notify UI
         OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
         
-        Debug.Log("🔄 Health system reset - ready for new game");
+        Debug.Log($"🔄 Health system reset - Health: {currentHealth}/{GetMaxHealth()}");
+        Debug.Log($"🔧 All flags reset - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
     }
     
     // Additional safety methods
     public void SetInvulnerable(bool invulnerable)
     {
         isInvulnerable = invulnerable;
+        Debug.Log($"🛡️ Invulnerability set to: {invulnerable}");
     }
     
     public void Heal(int amount)
@@ -237,5 +290,32 @@ public class HealthSystem : MonoBehaviour
             OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
             Die();
         }
+    }
+    
+    // PERBAIKAN: Method untuk force reset semua static variables (untuk debugging)
+    [ContextMenu("Force Reset All States")]
+    public void ForceResetAllStates()
+    {
+        isDead = false;
+        gameOverTriggered = false;
+        globalGameOverActive = false;
+        isInvulnerable = false;
+        currentHealth = oneHitKillMode ? 1 : maxHealth;
+        
+        Debug.Log("🔧 FORCE RESET - All states cleared!");
+    }
+    
+    // Method untuk debug current state
+    [ContextMenu("Debug Current State")]
+    public void DebugCurrentState()
+    {
+        Debug.Log("=== HEALTH SYSTEM DEBUG ===");
+        Debug.Log($"Health: {currentHealth}/{GetMaxHealth()}");
+        Debug.Log($"isDead: {isDead}");
+        Debug.Log($"gameOverTriggered: {gameOverTriggered}");
+        Debug.Log($"globalGameOverActive: {globalGameOverActive}");
+        Debug.Log($"isInvulnerable: {isInvulnerable}");
+        Debug.Log($"oneHitKillMode: {oneHitKillMode}");
+        Debug.Log("========================");
     }
 }

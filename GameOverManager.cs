@@ -31,8 +31,10 @@ public class GameOverManager : MonoBehaviour
     
     void Start()
     {
-        // RESET FLAG SETIAP KALI START
+        // PERBAIKAN: Reset semua flags saat Start
         gameOverActivated = false;
+        
+        Debug.Log("🎮 GameOverManager Start - Setting up...");
         
         // Setup audio source
         SetupAudioSource();
@@ -42,12 +44,22 @@ public class GameOverManager : MonoBehaviour
         {
             restartButton.onClick.RemoveAllListeners();
             restartButton.onClick.AddListener(RestartGame);
+            Debug.Log("✅ Restart button setup complete");
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ Restart button not assigned!");
         }
         
         if (exitButton != null)
         {
             exitButton.onClick.RemoveAllListeners();
             exitButton.onClick.AddListener(ExitToMainMenu);
+            Debug.Log("✅ Exit button setup complete");
+        }
+        else
+        {
+            Debug.LogWarning("⚠️ Exit button not assigned!");
         }
         
         // Hide game over panel initially
@@ -164,63 +176,64 @@ public class GameOverManager : MonoBehaviour
         ActivateGameOver();
     }
     
-    // PERBAIKAN: RestartGame dengan delay untuk audio
+    // PERBAIKAN UTAMA: RestartGame yang benar-benar restart scene
     public void RestartGame()
     {
-        // Reset global game over state
+        Debug.Log("🔄 RestartGame called!");
+        
+        // PERBAIKAN: Reset global state SEBELUM scene reload
         HealthSystem.ResetGameOverState();
         
-        // Reset time scale
-        Time.timeScale = 1f;
+        // Play button sound
+        PlayButtonSound();
         
-        // Hide game over canvas
-        if (gameOverCanvas != null)
-        {
-            gameOverCanvas.SetActive(false);
-        }
-        
-        // Reset player health if available
-        GameObject player = GameObject.FindGameObjectWithTag("Player");
-        if (player != null)
-        {
-            HealthSystem playerHealth = player.GetComponent<HealthSystem>();
-            if (playerHealth != null)
-            {
-                playerHealth.ResetHealth();
-            }
-        }
-        
-        Debug.Log("🔄 Game restarted - all states reset");
+        // PERBAIKAN: Panggil coroutine untuk restart dengan delay
+        StartCoroutine(RestartWithAudioDelay());
     }
     
     // PERBAIKAN: Coroutine untuk restart dengan delay audio
     System.Collections.IEnumerator RestartWithAudioDelay()
     {
-        // Reset flag
+        Debug.Log("⏰ RestartWithAudioDelay started...");
+        
+        // PERBAIKAN: Reset semua flags dulu
         gameOverActivated = false;
         
         // Reset time scale untuk memungkinkan coroutine berjalan
         Time.timeScale = 1f;
         
+        // PERBAIKAN: Hide panel sebelum reload
+        if (gameOverPanel != null)
+        {
+            gameOverPanel.SetActive(false);
+            Debug.Log("🔧 Game over panel hidden before restart");
+        }
+        
         // Wait sebentar untuk button sound selesai
         yield return new WaitForSeconds(0.3f);
         
-        // Load scene
+        Debug.Log("⏰ Audio delay completed, reloading scene...");
+        
+        // PERBAIKAN: Selalu reload scene untuk restart yang benar
         if (useCurrentScene)
         {
             string currentSceneName = SceneManager.GetActiveScene().name;
-            Debug.Log($"🔄 Reloading scene: {currentSceneName}");
+            Debug.Log($"🔄 Reloading current scene: {currentSceneName}");
             SceneManager.LoadScene(currentSceneName);
         }
         else
         {
             if (!string.IsNullOrEmpty(specificSceneName))
             {
+                Debug.Log($"🔄 Loading specific scene: {specificSceneName}");
                 SceneManager.LoadScene(specificSceneName);
             }
             else
             {
-                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+                // Fallback ke current scene
+                string currentSceneName = SceneManager.GetActiveScene().name;
+                Debug.Log($"🔄 Fallback - reloading current scene: {currentSceneName}");
+                SceneManager.LoadScene(currentSceneName);
             }
         }
     }
@@ -248,6 +261,7 @@ public class GameOverManager : MonoBehaviour
         
         if (!string.IsNullOrEmpty(mainMenuSceneName))
         {
+            Debug.Log($"🏠 Loading main menu: {mainMenuSceneName}");
             SceneManager.LoadScene(mainMenuSceneName);
         }
         else
@@ -271,7 +285,7 @@ public class GameOverManager : MonoBehaviour
         }
     }
     
-    // PUBLIC METHOD UNTUK RESET FLAG DARI LUAR
+    // PUBLIC METHOD UNTUK RESET FLAG DARI LUAR (untuk restart manual tanpa scene reload)
     public void ResetGameOverState()
     {
         gameOverActivated = false;
@@ -334,10 +348,25 @@ public class GameOverManager : MonoBehaviour
         PlayButtonSound();
     }
     
-    // PERBAIKAN: Method untuk cleanup manual (untuk debugging)
     [ContextMenu("Cleanup Persistent Audio")]
     void ManualCleanupAudio()
     {
         CleanupPersistentAudio();
+    }
+    
+    [ContextMenu("Test Full Restart")]
+    void TestFullRestart()
+    {
+        RestartGame();
+    }
+    
+    [ContextMenu("Debug Game Over State")]
+    void DebugGameOverState()
+    {
+        Debug.Log("=== GAME OVER MANAGER DEBUG ===");
+        Debug.Log($"gameOverActivated: {gameOverActivated}");
+        Debug.Log($"gameOverPanel active: {(gameOverPanel != null ? gameOverPanel.activeInHierarchy.ToString() : "NULL")}");
+        Debug.Log($"Time.timeScale: {Time.timeScale}");
+        Debug.Log("==============================");
     }
 }
