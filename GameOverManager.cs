@@ -106,9 +106,9 @@ public class GameOverManager : MonoBehaviour
     public void ActivateGameOver()
     {
         Debug.Log($"💀 ActivateGameOver called! gameOverActivated = {gameOverActivated}");
-        
+
         gameOverActivated = true;
-        
+
         // Show game over panel
         if (gameOverPanel != null)
         {
@@ -119,13 +119,13 @@ public class GameOverManager : MonoBehaviour
         {
             Debug.LogError("❌ gameOverPanel is NULL! Cannot show game over!");
         }
-        
+
         // PERBAIKAN: Play game over sound dengan persistent audio source
         PlayGameOverSound();
-        
+
         // Pause game
         Time.timeScale = 0f;
-        
+
         Debug.Log("💀 Game Over Activated with persistent audio!");
     }
     
@@ -167,12 +167,30 @@ public class GameOverManager : MonoBehaviour
     // PERBAIKAN: RestartGame dengan delay untuk audio
     public void RestartGame()
     {
-        Debug.Log("🔄 RestartGame called!");
+        // Reset global game over state
+        HealthSystem.ResetGameOverState();
         
-        PlayButtonSound();
+        // Reset time scale
+        Time.timeScale = 1f;
         
-        // PERBAIKAN: Berikan waktu untuk sound selesai
-        StartCoroutine(RestartWithAudioDelay());
+        // Hide game over canvas
+        if (gameOverCanvas != null)
+        {
+            gameOverCanvas.SetActive(false);
+        }
+        
+        // Reset player health if available
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        if (player != null)
+        {
+            HealthSystem playerHealth = player.GetComponent<HealthSystem>();
+            if (playerHealth != null)
+            {
+                playerHealth.ResetHealth();
+            }
+        }
+        
+        Debug.Log("🔄 Game restarted - all states reset");
     }
     
     // PERBAIKAN: Coroutine untuk restart dengan delay audio

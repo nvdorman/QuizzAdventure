@@ -4,10 +4,10 @@ using System.Collections;
 public class HealthSystem : MonoBehaviour
 {
     [Header("One Hit Kill Settings")]
-    public bool oneHitKillMode = true; // New setting for instant death
+    public bool oneHitKillMode = true;
     
     [Header("Health Settings")]
-    public int maxHealth = 1; // Set to 1 for one hit kill
+    public int maxHealth = 1;
     public int currentHealth;
     
     [Header("Audio")]
@@ -18,10 +18,15 @@ public class HealthSystem : MonoBehaviour
     
     private SpriteRenderer spriteRenderer;
     private AudioSource audioSource;
-    private bool isInvulnerable = false; // Add this field
+    private bool isInvulnerable = false;
+    private bool isDead = false; // Prevent multiple death calls
+    private bool gameOverTriggered = false; // Prevent multiple game over triggers
     
-    // Events - Add this event
-    public System.Action<int, int> OnHealthChanged; // current, max
+    // Static variable to prevent multiple game overs
+    private static bool globalGameOverActive = false;
+    
+    // Events
+    public System.Action<int, int> OnHealthChanged;
     public System.Action OnDeath;
     
     void Start()
@@ -45,21 +50,37 @@ public class HealthSystem : MonoBehaviour
             }
         }
         
+        // Reset flags
+        isDead = false;
+        gameOverTriggered = false;
+        
         // Notify UI of initial health
         OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
         
         Debug.Log("💀 One Hit Kill Mode ACTIVATED - Be careful!");
     }
     
+    void OnEnable()
+    {
+        // Reset death flags when object is enabled
+        isDead = false;
+        gameOverTriggered = false;
+    }
+    
     public void TakeDamage(int damage)
     {
-        if (isInvulnerable || currentHealth <= 0) return;
+        // Prevent multiple damage calls if already dead or game over triggered
+        if (isInvulnerable || isDead || gameOverTriggered || globalGameOverActive)
+        {
+            Debug.Log($"🚫 Damage ignored - Dead: {isDead}, GameOver: {gameOverTriggered}, Global: {globalGameOverActive}");
+            return;
+        }
         
         if (oneHitKillMode)
         {
             Debug.Log("💀 ONE HIT KILL - INSTANT DEATH!");
             currentHealth = 0;
-            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth()); // Notify UI
+            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
             Die();
         }
         else
@@ -67,7 +88,7 @@ public class HealthSystem : MonoBehaviour
             currentHealth -= damage;
             currentHealth = Mathf.Max(0, currentHealth);
             
-            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth()); // Notify UI
+            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
             
             Debug.Log($"Health: {currentHealth}/{maxHealth}");
             
@@ -80,6 +101,18 @@ public class HealthSystem : MonoBehaviour
     
     void Die()
     {
+        // Multiple protection against double death
+        if (isDead || gameOverTriggered || globalGameOverActive)
+        {
+            Debug.Log($"🚫 Death ignored - already processed");
+            return;
+        }
+        
+        // Set flags immediately
+        isDead = true;
+        gameOverTriggered = true;
+        globalGameOverActive = true;
+        
         // Play death sound
         if (audioSource != null && deathSound != null)
         {
@@ -96,7 +129,7 @@ public class HealthSystem : MonoBehaviour
             playerController.enabled = false;
         }
         
-        // Show game over immediately
+        // Show game over immediately with protection
         StartCoroutine(GameOverDelay());
     }
     
@@ -104,11 +137,24 @@ public class HealthSystem : MonoBehaviour
     {
         yield return new WaitForSeconds(1f); // Short delay for death sound
         
+        // Double check that game over hasn't been triggered already
+        if (!gameOverTriggered)
+        {
+            Debug.Log("🚫 Game over delay cancelled - already triggered");
+            yield break;
+        }
+        
+        Debug.Log("⏰ Game over delay completed, showing game over panel...");
+        
         // Show game over canvas
-        if (gameOverCanvas != null)
+        if (gameOverCanvas != null && !gameOverCanvas.gameObject.activeInHierarchy)
         {
             gameOverCanvas.gameObject.SetActive(true);
             Debug.Log("✅ Game Over Canvas activated!");
+        }
+        else if (gameOverCanvas != null && gameOverCanvas.gameObject.activeInHierarchy)
+        {
+            Debug.Log("ℹ️ Game Over Canvas already active");
         }
         else
         {
@@ -126,22 +172,32 @@ public class HealthSystem : MonoBehaviour
         }
     }
     
+    // Public method to reset the game over state (for restart)
+    public static void ResetGameOverState()
+    {
+        globalGameOverActive = false;
+        Debug.log("🔄 Global game over state reset");
+    }
+    
     // Add IsInvulnerable method for compatibility
     public bool IsInvulnerable()
     {
-        return isInvulnerable;
+        return isInvulnerable || isDead || gameOverTriggered;
     }
     
     // Helper methods
     public int GetCurrentHealth() { return currentHealth; }
     public int GetMaxHealth() { return oneHitKillMode ? 1 : maxHealth; }
-    public bool IsDead() { return currentHealth <= 0; }
+    public bool IsDead() { return isDead; }
     
     // Reset for new game
     public void ResetHealth()
     {
-        currentHealth = oneHitKillMode ? 1 : maxHealth;
+        isDead = false;
+        gameOverTriggered = false;
+        globalGameOverActive = false;
         isInvulnerable = false;
+        currentHealth = oneHitKillMode ? 1 : maxHealth;
         
         // Re-enable player controller
         PlayerController2D playerController = GetComponent<PlayerController2D>();
@@ -156,7 +212,7 @@ public class HealthSystem : MonoBehaviour
         Debug.Log("🔄 Health system reset - ready for new game");
     }
     
-    // Additional compatibility methods
+    // Additional safety methods
     public void SetInvulnerable(bool invulnerable)
     {
         isInvulnerable = invulnerable;
@@ -164,11 +220,22 @@ public class HealthSystem : MonoBehaviour
     
     public void Heal(int amount)
     {
-        if (oneHitKillMode) return; // No healing in one hit kill mode
+        if (oneHitKillMode || isDead) return;
         
         currentHealth += amount;
         currentHealth = Mathf.Min(GetMaxHealth(), currentHealth);
         OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
         Debug.Log($"Healed {amount}! Health: {currentHealth}/{GetMaxHealth()}");
+    }
+    
+    // Method untuk external scripts untuk trigger instant game over
+    public void TriggerInstantGameOver()
+    {
+        if (!isDead && !gameOverTriggered)
+        {
+            currentHealth = 0;
+            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
+            Die();
+        }
     }
 }

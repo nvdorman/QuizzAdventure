@@ -182,14 +182,40 @@ public class EnemyAI : MonoBehaviour
     
     void InitializeComponents()
     {
+        // Auto-create Rigidbody2D if missing
         rb = GetComponent<Rigidbody2D>();
-        spriteRenderer = GetComponent<SpriteRenderer>();
-        audioSource = GetComponent<AudioSource>();
-        enemyCollider = GetComponent<Collider2D>();
+        if (rb == null)
+        {
+            rb = gameObject.AddComponent<Rigidbody2D>();
+            Debug.Log($"🔧 Auto-created Rigidbody2D for {gameObject.name}");
+        }
         
+        // Auto-create SpriteRenderer if missing
+        spriteRenderer = GetComponent<SpriteRenderer>();
+        if (spriteRenderer == null)
+        {
+            spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
+            Debug.Log($"🔧 Auto-created SpriteRenderer for {gameObject.name}");
+        }
+        
+        // Auto-create Collider2D if missing
+        enemyCollider = GetComponent<Collider2D>();
+        if (enemyCollider == null)
+        {
+            // Create BoxCollider2D as default
+            BoxCollider2D boxCollider = gameObject.AddComponent<BoxCollider2D>();
+            boxCollider.size = new Vector2(1f, 1f);
+            boxCollider.isTrigger = true; // Set as trigger for collision detection
+            enemyCollider = boxCollider;
+            Debug.Log($"🔧 Auto-created BoxCollider2D for {gameObject.name}");
+        }
+        
+        // Setup AudioSource
+        audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
+            Debug.Log($"🔧 Auto-created AudioSource for {gameObject.name}");
         }
         
         // Find player
@@ -198,19 +224,59 @@ public class EnemyAI : MonoBehaviour
         {
             player = playerObj.transform;
         }
+        else
+        {
+            Debug.LogWarning($"⚠️ Player not found for {gameObject.name}!");
+        }
         
-        // Get ground detection if exists
+        // Get optional components
         groundDetection = GetComponent<EnemyGroundDetection>();
         enemyCollisionScript = GetComponent<EnemyCollision>();
         
-        // Setup rigidbody based on gravity setting
+        // Setup rigidbody properties
         if (rb != null)
         {
             rb.gravityScale = useGravity ? 1f : 0f;
             rb.freezeRotation = true;
+            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+            
+            // Set constraints based on enemy type
+            if (!useGravity && guardianType == GuardianType.Flying)
+            {
+                rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+            }
+            else
+            {
+                rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+            }
         }
         
-        Debug.Log($"🤖 Components initialized for {gameObject.name}");
+        Debug.Log($"🤖 All components initialized for {gameObject.name}");
+    }
+
+    void SafeSetVelocity(Vector2 velocity)
+    {
+        if (rb != null)
+        {
+            rb.velocity = velocity;
+        }
+        else
+        {
+            Debug.LogWarning($"⚠️ Rigidbody2D is null for {gameObject.name}!");
+        }
+    }
+
+    Vector2 SafeGetVelocity()
+    {
+        if (rb != null)
+        {
+            return rb.velocity;
+        }
+        else
+        {
+            Debug.LogWarning($"⚠️ Rigidbody2D is null for {gameObject.name}!");
+            return Vector2.zero;
+        }
     }
     
     void SetupGuardianBehavior()
@@ -348,122 +414,132 @@ public class EnemyAI : MonoBehaviour
         
         Debug.Log($"🔍 Loading {animationType} sprites for {baseName}...");
         
+        // Multiple path attempts for better compatibility
+        string[] pathAttempts = {
+            $"Enemies/{baseName}",
+            $"enemies/{baseName}",
+            $"{baseName}",
+            $"Sprites/Enemies/{baseName}",
+            $"Sprites/enemies/{baseName}"
+        };
+        
         switch (animationType.ToLower())
         {
             case "rest":
-                Sprite restA = Resources.Load<Sprite>("Enemies/" + baseName + "_rest_a");
-                Sprite restB = Resources.Load<Sprite>("Enemies/" + baseName + "_rest_b");
-                
-                if (restA == null) restA = Resources.Load<Sprite>(baseName + "_rest_a");
-                if (restB == null) restB = Resources.Load<Sprite>(baseName + "_rest_b");
-                
-                if (restA != null)
-                {
-                    sprites.Add(restA);
-                    Debug.Log($"   ✅ Found rest_a sprite: {restA.name}");
-                }
-                if (restB != null)
-                {
-                    sprites.Add(restB);
-                    Debug.Log($"   ✅ Found rest_b sprite: {restB.name}");
-                }
+                LoadSpriteVariants(sprites, pathAttempts, new string[] { "_rest_a", "_rest_b", "_idle", "_rest" });
                 break;
                 
             case "move":
-                Sprite moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
-                Sprite moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_move_b");
-                
-                if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_move_a");
-                if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_move_b");
-                
-                if (moveA != null)
-                {
-                    sprites.Add(moveA);
-                    Debug.Log($"   ✅ Found move_a sprite: {moveA.name}");
-                }
-                if (moveB != null)
-                {
-                    sprites.Add(moveB);
-                    Debug.Log($"   ✅ Found move_b sprite: {moveB.name}");
-                }
+                LoadSpriteVariants(sprites, pathAttempts, new string[] { "_move_a", "_move_b", "_walk_a", "_walk_b" });
                 break;
                 
             case "attack":
-                Sprite attackA = Resources.Load<Sprite>("Enemies/" + baseName + "_attack_a");
-                Sprite attackB = Resources.Load<Sprite>("Enemies/" + baseName + "_attack_b");
-                Sprite attackRest = Resources.Load<Sprite>("Enemies/" + baseName + "_attack_rest");
-                Sprite jump = Resources.Load<Sprite>("Enemies/" + baseName + "_jump");
-                Sprite fly = Resources.Load<Sprite>("Enemies/" + baseName + "_fly");
-                
-                if (attackA == null) attackA = Resources.Load<Sprite>(baseName + "_attack_a");
-                if (attackB == null) attackB = Resources.Load<Sprite>(baseName + "_attack_b");
-                if (attackRest == null) attackRest = Resources.Load<Sprite>(baseName + "_attack_rest");
-                if (jump == null) jump = Resources.Load<Sprite>(baseName + "_jump");
-                if (fly == null) fly = Resources.Load<Sprite>(baseName + "_fly");
-                
-                if (attackA != null)
-                {
-                    sprites.Add(attackA);
-                    Debug.Log($"   ✅ Found attack_a sprite: {attackA.name}");
-                }
-                if (attackB != null)
-                {
-                    sprites.Add(attackB);
-                    Debug.Log($"   ✅ Found attack_b sprite: {attackB.name}");
-                }
-                if (attackRest != null)
-                {
-                    sprites.Add(attackRest);
-                    Debug.Log($"   ✅ Found attack_rest sprite: {attackRest.name}");
-                }
-                if (jump != null)
-                {
-                    sprites.Add(jump);
-                    Debug.Log($"   ✅ Found jump sprite: {jump.name}");
-                }
-                if (fly != null)
-                {
-                    sprites.Add(fly);
-                    Debug.Log($"   ✅ Found fly sprite: {fly.name}");
-                }
+                LoadSpriteVariants(sprites, pathAttempts, new string[] { "_attack_a", "_attack_b", "_attack_rest", "_jump", "_fly", "_attack" });
                 break;
                 
             case "idle":
-                Sprite idle = Resources.Load<Sprite>("Enemies/" + baseName + "_idle");
-                if (idle == null) idle = Resources.Load<Sprite>(baseName + "_idle");
-                if (idle != null)
-                {
-                    sprites.Add(idle);
-                    Debug.Log($"   ✅ Found idle sprite: {idle.name}");
-                }
+                LoadSpriteVariants(sprites, pathAttempts, new string[] { "_idle", "_rest_a", "_rest" });
                 break;
                 
             case "flat":
-                Sprite flat = Resources.Load<Sprite>("Enemies/" + baseName + "_flat");
-                Sprite shell = Resources.Load<Sprite>("Enemies/" + baseName + "_shell");
-                
-                if (flat == null) flat = Resources.Load<Sprite>(baseName + "_flat");
-                if (shell == null) shell = Resources.Load<Sprite>(baseName + "_shell");
-                
-                if (flat != null)
-                {
-                    sprites.Add(flat);
-                    Debug.Log($"   ✅ Found flat sprite: {flat.name}");
-                }
-                if (shell != null)
-                {
-                    sprites.Add(shell);
-                    Debug.Log($"   ✅ Found shell sprite: {shell.name}");
-                }
+                LoadSpriteVariants(sprites, pathAttempts, new string[] { "_flat", "_shell", "_death", "_dead" });
                 break;
+        }
+        
+        // If still no sprites found, try to load any sprite with the base name
+        if (sprites.Count == 0)
+        {
+            Debug.LogWarning($"⚠️ No specific sprites found for {baseName} {animationType}, trying fallback...");
+            
+            // Try to load any sprite that contains the base name
+            foreach (string path in pathAttempts)
+            {
+                Sprite fallbackSprite = Resources.Load<Sprite>(path);
+                if (fallbackSprite != null)
+                {
+                    sprites.Add(fallbackSprite);
+                    Debug.Log($"   ✅ Found fallback sprite: {fallbackSprite.name}");
+                    break;
+                }
+            }
         }
         
         if (sprites.Count == 0)
         {
             Debug.LogWarning($"⚠️ No sprites found for {baseName} {animationType}");
+            
+            // Create a temporary colored sprite as absolute fallback
+            Sprite tempSprite = CreateTemporarySprite();
+            if (tempSprite != null)
+            {
+                sprites.Add(tempSprite);
+                Debug.Log($"   🔧 Created temporary sprite for {baseName}");
+            }
         }
         
         return sprites.ToArray();
+    }
+
+    void LoadSpriteVariants(System.Collections.Generic.List<Sprite> sprites, string[] basePaths, string[] suffixes)
+    {
+        foreach (string basePath in basePaths)
+        {
+            foreach (string suffix in suffixes)
+            {
+                Sprite sprite = Resources.Load<Sprite>(basePath + suffix);
+                if (sprite != null)
+                {
+                    sprites.Add(sprite);
+                    Debug.Log($"   ✅ Found sprite: {sprite.name}");
+                }
+            }
+            
+            // If we found sprites from this path, don't try other paths
+            if (sprites.Count > 0) break;
+        }
+    }
+
+    Sprite CreateTemporarySprite()
+    {
+        try
+        {
+            // Create a simple 32x32 texture
+            Texture2D tempTexture = new Texture2D(32, 32);
+            Color spriteColor = GetEnemyColor();
+            
+            for (int x = 0; x < 32; x++)
+            {
+                for (int y = 0; y < 32; y++)
+                {
+                    tempTexture.SetPixel(x, y, spriteColor);
+                }
+            }
+            
+            tempTexture.Apply();
+            
+            Sprite tempSprite = Sprite.Create(tempTexture, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
+            tempSprite.name = $"temp_{enemyType}";
+            
+            return tempSprite;
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Failed to create temporary sprite: {e.Message}");
+            return null;
+        }
+    }
+
+    Color GetEnemyColor()
+    {
+        switch (enemyType)
+        {
+            case EnemyType.Bee: return Color.yellow;
+            case EnemyType.Slime_Normal: return Color.green;
+            case EnemyType.Slime_Fire: return Color.red;
+            case EnemyType.Fish_Blue: return Color.blue;
+            case EnemyType.Frog: return Color.green;
+            default: return Color.white;
+        }
     }
     
     void InitializeAI()
@@ -605,11 +681,12 @@ public class EnemyAI : MonoBehaviour
             // Stationary guardian - don't move, just detect and attack
             if (useGravity)
             {
-                rb.velocity = new Vector2(0, rb.velocity.y);
+                Vector2 currentVel = SafeGetVelocity();
+                SafeSetVelocity(new Vector2(0, currentVel.y));
             }
             else
             {
-                rb.velocity = Vector2.zero;
+                SafeSetVelocity(Vector2.zero);
             }
             
             PlayAnimation(AnimationState.Idle);
@@ -624,7 +701,6 @@ public class EnemyAI : MonoBehaviour
                 {
                     ChangeState(EnemyState.Shoot);
                 }
-                // Stationary guardians don't chase
             }
             return;
         }
@@ -632,11 +708,12 @@ public class EnemyAI : MonoBehaviour
         // Original idle behavior for non-stationary
         if (useGravity)
         {
-            rb.velocity = new Vector2(0, rb.velocity.y);
+            Vector2 currentVel = SafeGetVelocity();
+            SafeSetVelocity(new Vector2(0, currentVel.y));
         }
         else
         {
-            rb.velocity = Vector2.zero;
+            SafeSetVelocity(Vector2.zero);
         }
         
         PlayAnimation(AnimationState.Idle);
@@ -995,11 +1072,12 @@ public class EnemyAI : MonoBehaviour
         
         if (useGravity)
         {
-            rb.velocity = new Vector2(direction.x * speed, rb.velocity.y);
+            Vector2 currentVel = SafeGetVelocity();
+            SafeSetVelocity(new Vector2(direction.x * speed, currentVel.y));
         }
         else
         {
-            rb.velocity = direction * speed;
+            SafeSetVelocity(direction * speed);
         }
         
         if (spriteRenderer != null && Mathf.Abs(direction.x) > 0.1f)
