@@ -23,6 +23,10 @@ public class GameOverManager : MonoBehaviour
     public float gameOverSoundVolume = 0.7f;
     [Range(0f, 1f)]
     public float buttonSoundVolume = 0.5f;
+
+    [Header("Audio Objects Management")]
+    public GameObject[] persistentAudioObjects; // Input dari Inspector
+    public bool cleanupPersistentAudio = true;
     
     private AudioSource audioSource;
     private bool gameOverActivated = false;
@@ -154,14 +158,29 @@ public class GameOverManager : MonoBehaviour
     
     void CleanupAllPersistentAudio()
     {
-        // Cleanup any persistent audio objects
-        GameObject[] audioObjects = GameObject.FindGameObjectsWithTag("Audio");
-        foreach (GameObject obj in audioObjects)
+        if (!cleanupPersistentAudio) return;
+        
+        // PERBAIKAN: Gunakan array dari Inspector, bukan tag
+        if (persistentAudioObjects != null && persistentAudioObjects.Length > 0)
         {
-            if (obj.name.Contains("Persistent"))
+            foreach (GameObject audioObj in persistentAudioObjects)
+            {
+                if (audioObj != null)
+                {
+                    Destroy(audioObj);
+                    Debug.Log($"🧹 Cleaned up persistent audio object: {audioObj.name}");
+                }
+            }
+        }
+        
+        // Alternatif: Cari berdasarkan nama object (tanpa tag)
+        GameObject[] allObjects = FindObjectsOfType<GameObject>();
+        foreach (GameObject obj in allObjects)
+        {
+            if (obj.name.Contains("Persistent") && obj.GetComponent<AudioSource>() != null)
             {
                 Destroy(obj);
-                Debug.Log($"🧹 Cleaned up persistent audio object: {obj.name}");
+                Debug.Log($"🧹 Cleaned up persistent audio by name: {obj.name}");
             }
         }
     }
@@ -174,10 +193,16 @@ public class GameOverManager : MonoBehaviour
             Debug.Log("⚠️ Game Over sudah diaktivasi sebelumnya, skip");
             return;
         }
-        
+
         gameOverActivated = true;
-        
         Debug.Log("💀💀💀 GAME OVER ACTIVATED!");
+        
+        // PERBAIKAN: Pastikan Canvas aktif SEBELUM StartCoroutine
+        if (gameOverCanvas != null && !gameOverCanvas.gameObject.activeInHierarchy)
+        {
+            gameOverCanvas.gameObject.SetActive(true);
+            Debug.Log("🎮 Canvas activated before starting coroutine");
+        }
         
         StartCoroutine(GameOverSequence());
     }

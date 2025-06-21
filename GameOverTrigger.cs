@@ -171,7 +171,12 @@ public class GameOverTrigger : MonoBehaviour
             warningEffect.SetActive(false);
         }
         
-        // Langsung trigger game over tanpa health system
+        // PERBAIKAN: Cari GameOverManager lagi jika null
+        if (gameOverManager == null)
+        {
+            gameOverManager = FindObjectOfType<GameOverManager>();
+        }
+        
         if (gameOverManager != null)
         {
             Debug.Log("💀 Triggering Game Over via GameOverManager");
@@ -180,6 +185,14 @@ public class GameOverTrigger : MonoBehaviour
         else
         {
             Debug.LogError("❌ GameOverManager tidak ditemukan!");
+            
+            // PERBAIKAN: Fallback dengan cari Canvas langsung
+            Canvas gameOverCanvas = FindObjectOfType<Canvas>();
+            if (gameOverCanvas != null && gameOverCanvas.name.Contains("GameOver"))
+            {
+                gameOverCanvas.gameObject.SetActive(true);
+                Debug.Log("🎮 Fallback: Activated GameOver Canvas directly");
+            }
         }
     }
     
