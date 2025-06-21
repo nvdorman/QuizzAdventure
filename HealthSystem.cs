@@ -3,48 +3,36 @@ using System.Collections;
 
 public class HealthSystem : MonoBehaviour
 {
+    [Header("One Hit Kill Settings")]
+    public bool oneHitKillMode = true; // New setting for instant death
+    
     [Header("Health Settings")]
-    public int maxHealth = 100;
+    public int maxHealth = 1; // Set to 1 for one hit kill
     public int currentHealth;
     
-    [Header("Damage Settings")]
-    public int contactDamage = 50; // Damage saat menyentuh enemy
-    public float invulnerabilityTime = 1f;
-    
-    [Header("Visual Feedback")]
-    public Color damageColor = Color.red;
-    public float flashDuration = 0.2f;
-    
     [Header("Audio")]
-    public AudioClip hurtSound;
     public AudioClip deathSound;
     
     [Header("Game Over Settings")]
-    public Canvas gameOverCanvas; // Reference ke game over canvas
+    public Canvas gameOverCanvas;
     
     private SpriteRenderer spriteRenderer;
-    private Color originalColor;
-    private bool isInvulnerable = false;
     private AudioSource audioSource;
+    private bool isInvulnerable = false; // Add this field
     
-    // Events
+    // Events - Add this event
     public System.Action<int, int> OnHealthChanged; // current, max
     public System.Action OnDeath;
     
     void Start()
     {
-        currentHealth = maxHealth;
+        currentHealth = oneHitKillMode ? 1 : maxHealth;
         spriteRenderer = GetComponent<SpriteRenderer>();
         audioSource = GetComponent<AudioSource>();
         
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
-        }
-        
-        if (spriteRenderer != null)
-        {
-            originalColor = spriteRenderer.color;
         }
         
         // Auto-find game over canvas if not assigned
@@ -57,58 +45,37 @@ public class HealthSystem : MonoBehaviour
             }
         }
         
-        // Notify UI
-        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+        // Notify UI of initial health
+        OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
+        
+        Debug.Log("💀 One Hit Kill Mode ACTIVATED - Be careful!");
     }
     
     public void TakeDamage(int damage)
     {
         if (isInvulnerable || currentHealth <= 0) return;
         
-        currentHealth -= damage;
-        currentHealth = Mathf.Max(0, currentHealth);
-        
-        // Play hurt sound
-        if (audioSource != null && hurtSound != null)
+        if (oneHitKillMode)
         {
-            audioSource.PlayOneShot(hurtSound);
-        }
-        
-        // Visual feedback
-        if (spriteRenderer != null)
-        {
-            StartCoroutine(FlashDamage());
-        }
-        
-        // Notify UI
-        OnHealthChanged?.Invoke(currentHealth, maxHealth);
-        
-        Debug.Log($"Health: {currentHealth}/{maxHealth}");
-        
-        if (currentHealth <= 0)
-        {
+            Debug.Log("💀 ONE HIT KILL - INSTANT DEATH!");
+            currentHealth = 0;
+            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth()); // Notify UI
             Die();
         }
-    }
-    
-    System.Collections.IEnumerator FlashDamage()
-    {
-        isInvulnerable = true;
-        
-        // Flash effect
-        float flashTime = 0f;
-        while (flashTime < flashDuration)
+        else
         {
-            spriteRenderer.color = Color.Lerp(originalColor, damageColor, Mathf.PingPong(flashTime * 10f, 1f));
-            flashTime += Time.deltaTime;
-            yield return null;
+            currentHealth -= damage;
+            currentHealth = Mathf.Max(0, currentHealth);
+            
+            OnHealthChanged?.Invoke(currentHealth, GetMaxHealth()); // Notify UI
+            
+            Debug.Log($"Health: {currentHealth}/{maxHealth}");
+            
+            if (currentHealth <= 0)
+            {
+                Die();
+            }
         }
-        
-        spriteRenderer.color = originalColor;
-        
-        // Invulnerability frames
-        yield return new WaitForSeconds(invulnerabilityTime - flashDuration);
-        isInvulnerable = false;
     }
     
     void Die()
@@ -119,136 +86,62 @@ public class HealthSystem : MonoBehaviour
             audioSource.PlayOneShot(deathSound);
         }
         
-        Debug.Log("💀 Player died! Initiating game over sequence...");
+        Debug.Log("💀 Player died! Game Over!");
         OnDeath?.Invoke();
         
-        // Disable player controls
+        // Disable player controls immediately
         PlayerController2D playerController = GetComponent<PlayerController2D>();
         if (playerController != null)
         {
             playerController.enabled = false;
         }
         
-        // Trigger game over after a delay
+        // Show game over immediately
         StartCoroutine(GameOverDelay());
     }
     
     System.Collections.IEnumerator GameOverDelay()
     {
-        yield return new WaitForSeconds(2f);
+        yield return new WaitForSeconds(1f); // Short delay for death sound
         
-        Debug.Log("⏰ Game over delay completed, showing game over panel...");
-        
-        // PERBAIKAN: Coba beberapa metode untuk memastikan game over muncul
-        bool gameOverShown = false;
-        
-        // Method 1: Cari GameOverManager
-        GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
-        if (gameOverManager != null)
+        // Show game over canvas
+        if (gameOverCanvas != null)
         {
-            Debug.Log("✅ GameOverManager found, activating game over...");
-            gameOverManager.ActivateGameOver();
-            gameOverShown = true;
+            gameOverCanvas.gameObject.SetActive(true);
+            Debug.Log("✅ Game Over Canvas activated!");
         }
         else
         {
-            Debug.LogWarning("⚠️ GameOverManager not found in scene!");
-        }
-        
-        // Method 2: Fallback ke canvas yang di-assign
-        if (!gameOverShown && gameOverCanvas != null)
-        {
-            Debug.Log("🔄 Using fallback canvas method...");
-            gameOverCanvas.gameObject.SetActive(true);
-            
-            // Cek apakah canvas punya GameOverManager
-            GameOverManager canvasManager = gameOverCanvas.GetComponent<GameOverManager>();
-            if (canvasManager != null)
+            // Fallback - try to find GameOverManager
+            GameOverManager gameOverManager = FindObjectOfType<GameOverManager>();
+            if (gameOverManager != null)
             {
-                canvasManager.ActivateGameOver();
+                gameOverManager.ActivateGameOver();
+                Debug.Log("✅ GameOverManager activated!");
             }
             else
             {
-                Time.timeScale = 0f; // Pause game jika tidak ada manager
-            }
-            gameOverShown = true;
-        }
-        
-        // Method 3: Last resort - cari canvas game over di scene
-        if (!gameOverShown)
-        {
-            Debug.Log("🔄 Searching for game over canvas in scene...");
-            Canvas[] canvases = FindObjectsOfType<Canvas>();
-            foreach (Canvas canvas in canvases)
-            {
-                if (canvas.name.ToLower().Contains("gameover") || 
-                    canvas.name.ToLower().Contains("game_over") ||
-                    canvas.name.ToLower().Contains("gameovercanvas"))
-                {
-                    canvas.gameObject.SetActive(true);
-                    Time.timeScale = 0f;
-                    gameOverShown = true;
-                    Debug.Log($"✅ Found and activated game over canvas: {canvas.name}");
-                    break;
-                }
+                Debug.LogError("❌ No Game Over system found!");
             }
         }
-        
-        if (!gameOverShown)
-        {
-            Debug.LogError("❌ CRITICAL: No game over system found! Please check setup.");
-        }
-        else
-        {
-            Debug.Log("✅ Game over system activated successfully!");
-        }
     }
     
-    public void Heal(int amount)
-    {
-        currentHealth += amount;
-        currentHealth = Mathf.Min(maxHealth, currentHealth);
-        OnHealthChanged?.Invoke(currentHealth, maxHealth);
-        Debug.Log($"Healed {amount}! Health: {currentHealth}/{maxHealth}");
-    }
-    
-    public void SetMaxHealth(int newMaxHealth)
-    {
-        maxHealth = newMaxHealth;
-        currentHealth = Mathf.Min(currentHealth, maxHealth);
-        OnHealthChanged?.Invoke(currentHealth, maxHealth);
-    }
-    
+    // Add IsInvulnerable method for compatibility
     public bool IsInvulnerable()
     {
         return isInvulnerable;
     }
     
-    public float GetHealthPercentage()
-    {
-        return (float)currentHealth / maxHealth;
-    }
+    // Helper methods
+    public int GetCurrentHealth() { return currentHealth; }
+    public int GetMaxHealth() { return oneHitKillMode ? 1 : maxHealth; }
+    public bool IsDead() { return currentHealth <= 0; }
     
-    // Method untuk dipanggil dari script lain jika ingin langsung trigger game over
-    public void TriggerInstantGameOver()
-    {
-        currentHealth = 0;
-        OnHealthChanged?.Invoke(currentHealth, maxHealth);
-        Die();
-    }
-    
-    // Method untuk reset health (berguna untuk respawn/restart)
+    // Reset for new game
     public void ResetHealth()
     {
-        currentHealth = maxHealth;
+        currentHealth = oneHitKillMode ? 1 : maxHealth;
         isInvulnerable = false;
-        
-        if (spriteRenderer != null)
-        {
-            spriteRenderer.color = originalColor;
-        }
-        
-        OnHealthChanged?.Invoke(currentHealth, maxHealth);
         
         // Re-enable player controller
         PlayerController2D playerController = GetComponent<PlayerController2D>();
@@ -257,6 +150,25 @@ public class HealthSystem : MonoBehaviour
             playerController.enabled = true;
         }
         
+        // Notify UI
+        OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
+        
         Debug.Log("🔄 Health system reset - ready for new game");
+    }
+    
+    // Additional compatibility methods
+    public void SetInvulnerable(bool invulnerable)
+    {
+        isInvulnerable = invulnerable;
+    }
+    
+    public void Heal(int amount)
+    {
+        if (oneHitKillMode) return; // No healing in one hit kill mode
+        
+        currentHealth += amount;
+        currentHealth = Mathf.Min(GetMaxHealth(), currentHealth);
+        OnHealthChanged?.Invoke(currentHealth, GetMaxHealth());
+        Debug.Log($"Healed {amount}! Health: {currentHealth}/{GetMaxHealth()}");
     }
 }

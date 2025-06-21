@@ -51,17 +51,45 @@ public class EnemyCollision : MonoBehaviour
         }
     }
     
-    private void OnTriggerEnter2D(Collider2D other)
+    void OnTriggerEnter2D(Collider2D other)
     {
-        if (!useTriggerDamage) return;
-        
-        Debug.Log($"EnemyCollision Trigger: {gameObject.name} vs {other.gameObject.name}");
-        
-        if (other.CompareTag("Player") && canDamagePlayer)
+        if (other.CompareTag("Player"))
         {
-            if (damageOnlyOnce && hasDealtDamage) return;
+            // Try both HealthSystem and PlayerHealth
+            HealthSystem playerHealth = other.GetComponent<HealthSystem>();
+            PlayerHealth playerHealthAlt = other.GetComponent<PlayerHealth>();
             
-            DamagePlayer(other.gameObject);
+            bool isInvulnerable = false;
+            
+            if (playerHealth != null)
+            {
+                // Check if IsInvulnerable method exists
+                try
+                {
+                    isInvulnerable = playerHealth.IsInvulnerable();
+                }
+                catch (System.Exception)
+                {
+                    // Method doesn't exist, assume not invulnerable
+                    isInvulnerable = false;
+                }
+                
+                if (!isInvulnerable)
+                {
+                    playerHealth.TakeDamage(contactDamage);
+                }
+            }
+            else if (playerHealthAlt != null)
+            {
+                isInvulnerable = playerHealthAlt.IsInvulnerable();
+                
+                if (!isInvulnerable)
+                {
+                    playerHealthAlt.TakeDamage(contactDamage);
+                }
+            }
+            
+            Debug.Log($"💥 Player hit by {gameObject.name}! Damage: {contactDamage}");
         }
     }
     

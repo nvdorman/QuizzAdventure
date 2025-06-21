@@ -12,6 +12,7 @@ public class PlayerController2D : MonoBehaviour
     public float duckSpeedMultiplier = 0.5f;
 
     [Header("Shooting Settings")]
+    public bool shootingDisabled = true; // Shooting completely disabled in dodge mode
     public GameObject bulletPrefab;
     public Transform firePoint;
     public float bulletSpeed = 15f;
@@ -108,14 +109,14 @@ public class PlayerController2D : MonoBehaviour
     private string currentAnimationState = "";
     
     // Shooting variables
-    private float nextFireTime = 0f;
+    // private float nextFireTime = 0f;
     private int currentAmmo;
     private bool isReloading = false;
     private float reloadProgress = 0f;
     private Vector2 mousePosition;
     private Vector2 shootDirection = Vector2.right; // Initialize with default direction
-    private bool lastMouseButtonState = false;
-    private bool shootingEnabled = false; // Add flag to control shooting
+    // private bool lastMouseButtonState = false;
+    // private bool shootingEnabled = false; // Add flag to control shooting
 
     // Animation States
     private const string IDLE = "Idle";
@@ -140,15 +141,17 @@ public class PlayerController2D : MonoBehaviour
             originalColor = spriteRenderer.color;
             UpdateColliderToFitSprite(currentCharacterSprites.idle);
         }
-        
+
         // Enable shooting after a short delay to prevent accidental shots on start
         StartCoroutine(EnableShootingAfterDelay());
+        // shootingEnabled = false; // Disable shooting completely
+        Debug.Log("🚫 Shooting system disabled - dodge only mode!");
     }
     
     IEnumerator EnableShootingAfterDelay()
     {
         yield return new WaitForSeconds(0.1f); // Small delay
-        shootingEnabled = true;
+        // shootingEnabled = true;
         Debug.Log("🔫 Shooting enabled!");
     }
 
@@ -247,7 +250,7 @@ public class PlayerController2D : MonoBehaviour
         lastGroundedTime = Time.time;
         currentSlowMotionFactor = 1f;
         isInSlowMotion = false;
-        shootingEnabled = false; // Start with shooting disabled
+        // shootingEnabled = false; // Start with shooting disabled
     }
 
     void UpdateColliderToFitSprite(Sprite sprite)
@@ -543,88 +546,20 @@ public class PlayerController2D : MonoBehaviour
 
     void HandleShooting()
     {
-        if (isReloading || !shootingEnabled) return; // Check if shooting is enabled
-        
-        bool mouseButtonPressed = Input.GetMouseButton(0);
-        bool mouseButtonDown = Input.GetMouseButtonDown(0);
-        
-        // Debug mouse input
-        if (mouseButtonDown)
+        // SHOOTING DISABLED - Player can only dodge
+        if (shootingDisabled)
         {
-            Debug.Log("🖱️ Mouse button down detected!");
+            return;
         }
         
-        bool shouldShoot = false;
-        
-        if (autoFire && mouseButtonPressed && Time.time >= nextFireTime)
-        {
-            shouldShoot = true;
-            Debug.Log("🔥 Auto fire triggered!");
-        }
-        else if (singleFire && mouseButtonDown && Time.time >= nextFireTime)
-        {
-            shouldShoot = true;
-            Debug.Log("🔫 Single fire triggered!");
-        }
-        
-        if (shouldShoot)
-        {
-            if (currentAmmo > 0)
-            {
-                Debug.Log($"💥 Shooting! Ammo: {currentAmmo}, Direction: {shootDirection}");
-                Shoot();
-                nextFireTime = Time.time + fireRate;
-            }
-            else
-            {
-                PlayEmptyClipSound();
-                Debug.Log("🚫 No ammo!");
-            }
-        }
-        
-        lastMouseButtonState = mouseButtonPressed;
+        // Original shooting code would go here, but it's disabled
+        Debug.Log("🚫 Shooting is disabled in dodge-only mode!");
     }
 
     void Shoot()
     {
-        if (bulletPrefab == null || firePoint == null) return;
-        
-        Debug.Log($"🎯 Creating bullet at {firePoint.position} with direction {shootDirection}");
-        
-        GameObject bullet = Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
-        
-        // Use Initialize method if Bullet script exists
-        Bullet bulletScript = bullet.GetComponent<Bullet>();
-        if (bulletScript != null)
-        {
-            bulletScript.Initialize(shootDirection, true, bulletDamage, gameObject);
-            Debug.Log("✅ Bullet initialized with script");
-        }
-        else
-        {
-            // Fallback to direct rigidbody control
-            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
-            if (bulletRb != null)
-            {
-                bulletRb.velocity = shootDirection * bulletSpeed;
-                Debug.Log("✅ Bullet velocity set directly");
-            }
-        }
-        
-        currentAmmo--;
-        
-        if (shootSound != null && audioSource != null)
-        {
-            audioSource.PlayOneShot(shootSound);
-        }
-        
-        if (muzzleFlash != null)
-        {
-            GameObject flash = Instantiate(muzzleFlash, firePoint.position, firePoint.rotation);
-            Destroy(flash, 0.1f);
-        }
-        
-        StartCoroutine(PlayHitAnimationOnShoot());
+        Debug.Log("🚫 Shooting is disabled in this game mode!");
+        return;
     }
 
     void UpdateAiming()

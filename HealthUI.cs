@@ -3,19 +3,14 @@ using UnityEngine.UI;
 
 public class HealthUI : MonoBehaviour
 {
-    [Header("Health Bar Components")]
+    [Header("Health UI Components")]
     public Slider healthSlider;
+    public Text healthText;
     public Image healthFill;
-    public Text healthText; // Optional
     
-    [Header("Health Bar Colors")]
+    [Header("Health Colors")]
     public Color fullHealthColor = Color.green;
-    public Color mediumHealthColor = Color.yellow;
     public Color lowHealthColor = Color.red;
-    
-    [Header("Animation")]
-    public bool animateHealthBar = true;
-    public float animationSpeed = 5f;
     
     private HealthSystem playerHealth;
     private float targetHealth;
@@ -23,6 +18,13 @@ public class HealthUI : MonoBehaviour
     
     void Start()
     {
+        // In one-hit kill mode, hide health UI
+        if (ShouldHideHealthUI())
+        {
+            HideHealthUI();
+            return;
+        }
+        
         // Cari player health system
         GameObject player = GameObject.FindGameObjectWithTag("Player");
         if (player != null)
@@ -30,20 +32,83 @@ public class HealthUI : MonoBehaviour
             playerHealth = player.GetComponent<HealthSystem>();
             if (playerHealth != null)
             {
-                // Subscribe ke health change events
-                playerHealth.OnHealthChanged += UpdateHealthDisplay;
+                // Check if OnHealthChanged event exists
+                if (playerHealth.OnHealthChanged != null)
+                {
+                    // Subscribe ke health change events
+                    playerHealth.OnHealthChanged += UpdateHealthDisplay;
+                }
+                else
+                {
+                    Debug.LogWarning("⚠️ HealthSystem.OnHealthChanged event not found! Using fallback update method.");
+                    // Use fallback method
+                    InvokeRepeating(nameof(UpdateHealthFallback), 0f, 0.1f);
+                }
                 
                 // Set initial values
-                SetupHealthBar(playerHealth.currentHealth, playerHealth.maxHealth);
+                SetupHealthBar(playerHealth.GetCurrentHealth(), playerHealth.GetMaxHealth());
             }
             else
             {
                 Debug.LogWarning("HealthSystem tidak ditemukan pada Player!");
+                HideHealthUI();
             }
         }
         else
         {
             Debug.LogWarning("Player dengan tag 'Player' tidak ditemukan!");
+            HideHealthUI();
+        }
+    }
+    
+    bool ShouldHideHealthUI()
+    {
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        if (player != null)
+        {
+            HealthSystem health = player.GetComponent<HealthSystem>();
+            if (health != null)
+            {
+                // Check if it's one-hit kill mode (max health = 1)
+                return health.GetMaxHealth() <= 1;
+            }
+        }
+        return false;
+    }
+    
+    void HideHealthUI()
+    {
+        // Hide health UI components since it's one-hit kill
+        if (healthSlider != null)
+        {
+            healthSlider.gameObject.SetActive(false);
+        }
+        
+        if (healthText != null)
+        {
+            healthText.gameObject.SetActive(false);
+        }
+        
+        if (healthFill != null)
+        {
+            healthFill.gameObject.SetActive(false);
+        }
+        
+        // Hide heart container if it exists
+        Transform heartContainer = transform.Find("HeartContainer");
+        if (heartContainer != null)
+        {
+            heartContainer.gameObject.SetActive(false);
+        }
+        
+        Debug.Log("💀 Health UI hidden - One Hit Kill Mode");
+    }
+    
+    void UpdateHealthFallback()
+    {
+        if (playerHealth != null)
+        {
+            UpdateHealthDisplay(playerHealth.GetCurrentHealth(), playerHealth.GetMaxHealth());
         }
     }
     
@@ -69,12 +134,6 @@ public class HealthUI : MonoBehaviour
         if (healthSlider != null)
         {
             healthSlider.maxValue = maxHealth;
-            
-            if (!animateHealthBar)
-            {
-                healthSlider.value = currentHealth;
-                currentDisplayHealth = currentHealth;
-            }
         }
         
         UpdateHealthColor();
@@ -83,57 +142,46 @@ public class HealthUI : MonoBehaviour
     
     void Update()
     {
-        if (animateHealthBar && healthSlider != null)
+        if (playerHealth == null) return;
+        
+        // Smooth health bar animation
+        if (Mathf.Abs(currentDisplayHealth - targetHealth) > 0.1f)
         {
-            // Smooth animation untuk health bar
-            currentDisplayHealth = Mathf.Lerp(currentDisplayHealth, targetHealth, Time.deltaTime * animationSpeed);
-            healthSlider.value = currentDisplayHealth;
+            currentDisplayHealth = Mathf.Lerp(currentDisplayHealth, targetHealth, Time.deltaTime * 5f);
             
-            if (Mathf.Abs(currentDisplayHealth - targetHealth) < 0.1f)
+            if (healthSlider != null)
             {
-                currentDisplayHealth = targetHealth;
-                healthSlider.value = targetHealth;
+                healthSlider.value = currentDisplayHealth;
             }
         }
     }
     
     void UpdateHealthColor()
     {
-        if (healthFill == null || healthSlider == null) return;
-        
-        float healthPercentage = healthSlider.value / healthSlider.maxValue;
-        
-        Color targetColor;
-        if (healthPercentage > 0.6f)
+        if (healthFill != null && playerHealth != null)
         {
-            targetColor = fullHealthColor;
+            float healthPercentage = (float)playerHealth.GetCurrentHealth() / playerHealth.GetMaxHealth();
+            healthFill.color = Color.Lerp(lowHealthColor, fullHealthColor, healthPercentage);
         }
-        else if (healthPercentage > 0.3f)
-        {
-            targetColor = mediumHealthColor;
-        }
-        else
-        {
-            targetColor = lowHealthColor;
-        }
-        
-        healthFill.color = targetColor;
     }
     
     void UpdateHealthText()
     {
         if (healthText != null && playerHealth != null)
         {
-            healthText.text = $"{Mathf.Ceil(currentDisplayHealth)}/{playerHealth.maxHealth}";
+            healthText.text = $"{playerHealth.GetCurrentHealth()}/{playerHealth.GetMaxHealth()}";
         }
     }
     
     void OnDestroy()
     {
-        // Unsubscribe dari events
-        if (playerHealth != null)
+        // Unsubscribe from events
+        if (playerHealth != null && playerHealth.OnHealthChanged != null)
         {
             playerHealth.OnHealthChanged -= UpdateHealthDisplay;
         }
+        
+        // Cancel invoke if using fallback
+        CancelInvoke(nameof(UpdateHealthFallback));
     }
 }

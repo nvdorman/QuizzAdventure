@@ -6,6 +6,13 @@ public class EnemyAI : MonoBehaviour
     [Header("Enemy Type")]
     [SerializeField] private EnemyType enemyType = EnemyType.Slime_Normal;
     
+    [Header("Guardian Settings")]
+    public GuardianType guardianType = GuardianType.Patrol;
+    public float guardAreaRadius = 5f; // Radius area yang dijaga
+    public bool stayInGuardArea = true; // Apakah musuh harus tetap di area
+    public Vector2 guardCenter; // Pusat area yang dijaga
+    [SerializeField] private bool showGuardArea = true; // Show guard area in editor
+    
     [Header("Animation Sprites")]
     [SerializeField] private Sprite[] idleSprites;
     [SerializeField] private Sprite[] walkSprites;
@@ -33,6 +40,7 @@ public class EnemyAI : MonoBehaviour
     public float moveSpeed = 3f;
     public float chaseSpeed = 5f;
     public float patrolSpeed = 2f;
+    public bool useGravity = true;
     
     [Header("Shooting Settings")]
     public GameObject bulletPrefab;
@@ -59,36 +67,31 @@ public class EnemyAI : MonoBehaviour
     public bool returnToPatrolAfterLose = true;
     
     [Header("Effects")]
-    public GameObject alertEffect;
     public GameObject attackEffect;
-    
-    [Header("Visual Settings")]
-    public Color normalColor = Color.white;
-    public Color alertColor = Color.yellow;
-    public Color chaseColor = Color.red;
+    public GameObject alertEffect;
+    public GameObject damageEffect;
+    public GameObject deathEffect;
     
     [Header("Audio")]
     public AudioClip detectSound;
-    public AudioClip attackSound;
     public AudioClip alertSound;
-
-    [Header("Physics")]
-    public LayerMask groundLayer = (1 << 8); // Ground layer
-    public bool useGravity = true;
-    public float jumpForce = 5f;
+    public AudioClip attackSound;
+    public AudioClip hurtSound;
+    public AudioClip deathSound;
+    public AudioClip walkSound;
     
-    [Header("Auto Collider Settings")]
-    public bool autoAdjustCollider = true; // Otomatis sesuaikan dengan sprite
-    public float colliderSizeMultiplier = 0.8f; // Berapa persen dari ukuran sprite (0.8 = 80%)
-    public bool updateColliderPerFrame = false; // Update collider setiap frame sprite berubah
+    [Header("Colors")]
+    public Color normalColor = Color.white;
+    public Color alertColor = Color.yellow;
+    public Color chaseColor = Color.red;
+    public Color guardAreaColor = Color.cyan;
     
-    // Private variables
-    private Transform player;
+    // Components
     private Rigidbody2D rb;
     private SpriteRenderer spriteRenderer;
     private AudioSource audioSource;
+    private Transform player;
     private Collider2D enemyCollider;
-
     private EnemyGroundDetection groundDetection;
     private EnemyCollision enemyCollisionScript;
     
@@ -141,6 +144,14 @@ public class EnemyAI : MonoBehaviour
         Barnacle
     }
     
+    public enum GuardianType
+    {
+        Patrol,      // Bergerak patrol seperti biasa
+        Stationary,  // Diam di tempat seperti penjaga
+        Flying,      // Terbang di area tertentu seperti lebah
+        Ground       // Bergerak di ground saja
+    }
+    
     [SerializeField] private EnemyState currentState = EnemyState.Idle;
     
     // Movement variables
@@ -164,101 +175,99 @@ public class EnemyAI : MonoBehaviour
     {
         InitializeComponents();
         SetupEnemySprites();
+        SetupGuardianBehavior();
         InitializeAI();
         currentHealth = maxHealth;
     }
-
+    
     void InitializeComponents()
     {
-        // Setup Rigidbody2D - OTOMATIS
         rb = GetComponent<Rigidbody2D>();
-        if (rb == null)
-        {
-            rb = gameObject.AddComponent<Rigidbody2D>();
-            Debug.Log("✅ Rigidbody2D otomatis ditambahkan ke " + gameObject.name);
-        }
-        
-        // Setup SpriteRenderer - OTOMATIS
         spriteRenderer = GetComponent<SpriteRenderer>();
-        if (spriteRenderer == null)
-        {
-            spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
-            Debug.Log("✅ SpriteRenderer otomatis ditambahkan ke " + gameObject.name);
-        }
-        
-        // Setup Collider2D - OTOMATIS berdasarkan ukuran sprite
-        enemyCollider = GetComponent<Collider2D>();
-        if (enemyCollider == null)
-        {
-            BoxCollider2D boxCollider = gameObject.AddComponent<BoxCollider2D>();
-            enemyCollider = boxCollider;
-            Debug.Log("✅ BoxCollider2D otomatis ditambahkan ke " + gameObject.name);
-        }
-        
-        // Setup physics
-        if (rb != null)
-        {
-            if (useGravity)
-            {
-                rb.gravityScale = 3f;
-                rb.freezeRotation = true;
-            }
-            else
-            {
-                rb.gravityScale = 0f;
-            }
-            
-            rb.mass = 1f;
-            rb.drag = 2f;
-            rb.angularDrag = 50f;
-        }
-
-        // Setup audio - OTOMATIS
         audioSource = GetComponent<AudioSource>();
+        enemyCollider = GetComponent<Collider2D>();
+        
         if (audioSource == null)
         {
             audioSource = gameObject.AddComponent<AudioSource>();
-            audioSource.playOnAwake = false;
-            audioSource.spatialBlend = 0f;
-            Debug.Log("✅ AudioSource otomatis ditambahkan ke " + gameObject.name);
         }
-
-        // Setup EnemyCollision script - OTOMATIS
-        enemyCollisionScript = GetComponent<EnemyCollision>();
-        if (enemyCollisionScript == null)
-        {
-            enemyCollisionScript = gameObject.AddComponent<EnemyCollision>();
-            Debug.Log("✅ EnemyCollision script otomatis ditambahkan ke " + gameObject.name);
-        }
-
+        
         // Find player
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
         {
             player = playerObj.transform;
-            Debug.Log("✅ Player ditemukan: " + player.name);
-        }
-        else
-        {
-            Debug.LogWarning("⚠️ Player dengan tag 'Player' tidak ditemukan!");
-        }
-
-        // Setup fire point if not assigned
-        if (firePoint == null && canShoot)
-        {
-            GameObject firePointObj = new GameObject("EnemyFirePoint");
-            firePointObj.transform.SetParent(transform);
-            firePointObj.transform.localPosition = new Vector3(0.5f, 0, 0);
-            firePoint = firePointObj.transform;
         }
         
-        // Setup ground detection - OTOMATIS
+        // Get ground detection if exists
         groundDetection = GetComponent<EnemyGroundDetection>();
-        if (groundDetection == null && useGravity)
+        enemyCollisionScript = GetComponent<EnemyCollision>();
+        
+        // Setup rigidbody based on gravity setting
+        if (rb != null)
         {
-            groundDetection = gameObject.AddComponent<EnemyGroundDetection>();
-            groundDetection.groundLayer = groundLayer;
-            Debug.Log("✅ EnemyGroundDetection otomatis ditambahkan ke " + gameObject.name);
+            rb.gravityScale = useGravity ? 1f : 0f;
+            rb.freezeRotation = true;
+        }
+        
+        Debug.Log($"🤖 Components initialized for {gameObject.name}");
+    }
+    
+    void SetupGuardianBehavior()
+    {
+        guardCenter = transform.position; // Set guard center ke posisi awal
+        
+        switch (guardianType)
+        {
+            case GuardianType.Stationary:
+                // Musuh diam di tempat, hanya detect dan attack/shoot
+                canPatrol = false;
+                canChase = false;
+                canAttack = true;
+                canShoot = true;
+                moveSpeed = 0f; // No movement
+                Debug.Log($"🛡️ {gameObject.name} setup as STATIONARY guardian");
+                break;
+                
+            case GuardianType.Flying:
+                // Musuh terbang seperti lebah, bergerak tapi tetap di area
+                useGravity = false; // Tidak terpengaruh gravitasi
+                if (rb != null) rb.gravityScale = 0f;
+                canPatrol = true;
+                canChase = true;
+                canAttack = true;
+                canShoot = true;
+                moveSpeed = 2f; // Slower flying speed
+                chaseSpeed = 3f;
+                Debug.Log($"🐝 {gameObject.name} setup as FLYING guardian");
+                break;
+                
+            case GuardianType.Ground:
+                // Musuh ground normal
+                useGravity = true;
+                if (rb != null) rb.gravityScale = 1f;
+                canPatrol = true;
+                canChase = true;
+                canAttack = true;
+                Debug.Log($"🐛 {gameObject.name} setup as GROUND guardian");
+                break;
+                
+            case GuardianType.Patrol:
+            default:
+                // Behavior normal seperti sebelumnya
+                Debug.Log($"🚶 {gameObject.name} setup as PATROL guardian");
+                break;
+        }
+        
+        // Special case untuk Barnacle
+        if (isBarnacle || enemyType == EnemyType.Barnacle)
+        {
+            guardianType = GuardianType.Stationary;
+            canShootOnly = true;
+            canChase = false;
+            canPatrol = false;
+            canShoot = true;
+            Debug.Log($"🦪 {gameObject.name} force setup as Barnacle (Stationary)");
         }
     }
     
@@ -300,275 +309,82 @@ public class EnemyAI : MonoBehaviour
             
             if (walkSprites.Length == 0)
             {
-                walkSprites = LoadSpritesForAnimation(baseName, "walk");
+                walkSprites = LoadSpritesForAnimation(baseName, "move");
             }
             
             if (attackSprites.Length == 0)
             {
                 attackSprites = LoadSpritesForAnimation(baseName, "attack");
             }
-        }
-        
-        if (alertSprites.Length == 0)
-        {
-            alertSprites = LoadSpritesForAnimation(baseName, "idle");
-        }
-        
-        if (deathSprites.Length == 0)
-        {
-            deathSprites = LoadSpritesForAnimation(baseName, "flat");
-        }
-        
-        // PERBAIKAN: Set sprite pertama SEBELUM PlayAnimation
-        SetInitialSprite();
-        
-        // Kemudian play animation
-        PlayAnimation(AnimationState.Idle);
-        
-        // OTOMATIS sesuaikan collider setelah sprite di-set
-        StartCoroutine(DelayedAutoAdjustCollider());
-    }
-    
-    // Method untuk set sprite pertama langsung
-    void SetInitialSprite()
-    {
-        Sprite firstSprite = null;
-        
-        // Cari sprite pertama yang tersedia
-        if (idleSprites != null && idleSprites.Length > 0 && idleSprites[0] != null)
-        {
-            firstSprite = idleSprites[0];
-        }
-        else if (walkSprites != null && walkSprites.Length > 0 && walkSprites[0] != null)
-        {
-            firstSprite = walkSprites[0];
-        }
-        else if (attackSprites != null && attackSprites.Length > 0 && attackSprites[0] != null)
-        {
-            firstSprite = attackSprites[0];
-        }
-        
-        if (firstSprite != null && spriteRenderer != null)
-        {
-            spriteRenderer.sprite = firstSprite;
-            spriteRenderer.color = normalColor;
-            Debug.Log($"✅ Sprite pertama di-set: {firstSprite.name}");
-        }
-        else
-        {
-            Debug.LogWarning($"⚠️ Tidak ada sprite yang ditemukan untuk {gameObject.name}!");
             
-            // Fallback: coba load sprite default langsung
-            string baseName = GetEnemyBaseName();
-            Sprite fallbackSprite = Resources.Load<Sprite>("Enemies/" + baseName + "_rest");
-            if (fallbackSprite == null)
+            if (alertSprites.Length == 0)
             {
-                fallbackSprite = Resources.Load<Sprite>(baseName + "_rest");
+                alertSprites = LoadSpritesForAnimation(baseName, "idle");
             }
             
-            if (fallbackSprite != null && spriteRenderer != null)
+            if (deathSprites.Length == 0)
             {
-                spriteRenderer.sprite = fallbackSprite;
-                spriteRenderer.color = normalColor;
-                Debug.Log($"✅ Fallback sprite di-set: {fallbackSprite.name}");
+                deathSprites = LoadSpritesForAnimation(baseName, "flat");
             }
         }
-    }
-    
-    // Delayed auto adjust collider untuk memastikan sprite sudah di-load
-    IEnumerator DelayedAutoAdjustCollider()
-    {
-        yield return new WaitForEndOfFrame(); // Wait 1 frame
-        AutoAdjustColliderToSprite();
-    }
-    
-    // Method untuk otomatis menyesuaikan collider dengan ukuran sprite
-    void AutoAdjustColliderToSprite()
-    {
-        if (!autoAdjustCollider) return;
         
-        if (spriteRenderer == null || spriteRenderer.sprite == null || enemyCollider == null)
+        // Set initial sprite
+        if (spriteRenderer != null && idleSprites.Length > 0)
         {
-            Debug.LogWarning($"⚠️ Tidak bisa auto-adjust collider untuk {gameObject.name}: SpriteRenderer atau Sprite null");
-            return;
+            spriteRenderer.sprite = idleSprites[0];
         }
         
-        if (enemyCollider is BoxCollider2D)
-        {
-            BoxCollider2D boxCollider = (BoxCollider2D)enemyCollider;
-            Sprite currentSprite = spriteRenderer.sprite;
-            
-            // Dapatkan ukuran sprite dalam world units
-            Vector2 spriteSize = currentSprite.bounds.size;
-            
-            // Sesuaikan ukuran collider menggunakan multiplier yang bisa diatur
-            Vector2 newColliderSize = spriteSize * colliderSizeMultiplier;
-            
-            // Set ukuran collider
-            boxCollider.size = newColliderSize;
-            
-            // Auto-calculate offset untuk menempatkan collider di bagian bawah sprite (kaki enemy)
-            float offsetY = -(spriteSize.y - newColliderSize.y) / 2f;
-            boxCollider.offset = new Vector2(0, offsetY);
-            
-            Debug.Log($"🎯 Auto-adjusted collider untuk {gameObject.name}:");
-            Debug.Log($"   📏 Sprite size: {spriteSize}");
-            Debug.Log($"   📦 Collider size: {newColliderSize} ({colliderSizeMultiplier * 100}% dari sprite)");
-            Debug.Log($"   📍 Collider offset: {boxCollider.offset}");
-        }
-    }
-
-    // Method untuk update collider saat sprite berubah (saat animasi)
-    void UpdateColliderForCurrentSprite()
-    {
-        if (!updateColliderPerFrame || !autoAdjustCollider) return;
-        
-        if (spriteRenderer != null && spriteRenderer.sprite != null && enemyCollider is BoxCollider2D)
-        {
-            BoxCollider2D boxCollider = (BoxCollider2D)enemyCollider;
-            Sprite currentSprite = spriteRenderer.sprite;
-            
-            Vector2 newSpriteSize = currentSprite.bounds.size;
-            Vector2 currentColliderSize = boxCollider.size;
-            
-            if (Mathf.Abs(newSpriteSize.x - currentColliderSize.x / colliderSizeMultiplier) > 0.1f ||
-                Mathf.Abs(newSpriteSize.y - currentColliderSize.y / colliderSizeMultiplier) > 0.1f)
-            {
-                Vector2 newColliderSize = newSpriteSize * colliderSizeMultiplier;
-                boxCollider.size = newColliderSize;
-                
-                float offsetY = -(newSpriteSize.y - newColliderSize.y) / 2f;
-                boxCollider.offset = new Vector2(0, offsetY);
-                
-                Debug.Log($"🔄 Updated collider size untuk {gameObject.name}: {newColliderSize}");
-            }
-        }
+        Debug.Log($"✅ Sprite setup complete for {baseName}");
     }
     
     string GetEnemyBaseName()
     {
-        switch (enemyType)
-        {
-            case EnemyType.Slime_Normal: return "slime_normal";
-            case EnemyType.Slime_Fire: return "slime_fire";
-            case EnemyType.Slime_Spike: return "slime_spike";
-            case EnemyType.Bee: return "bee";
-            case EnemyType.Fish_Blue: return "fish_blue";
-            case EnemyType.Fish_Yellow: return "fish_yellow";
-            case EnemyType.Fish_Purple: return "fish_purple";
-            case EnemyType.Frog: return "frog";
-            case EnemyType.Ladybug: return "ladybug";
-            case EnemyType.Mouse: return "mouse";
-            case EnemyType.Snail: return "snail";
-            case EnemyType.Worm_Normal: return "worm_normal";
-            case EnemyType.Worm_Ring: return "worm_ring";
-            case EnemyType.Fly: return "fly";
-            case EnemyType.Saw: return "saw";
-            case EnemyType.Barnacle: return "barnacle";
-            default: return "slime_normal";
-        }
+        return enemyType.ToString().ToLower().Replace("_", "-");
     }
     
     Sprite[] LoadSpritesForAnimation(string baseName, string animationType)
     {
         System.Collections.Generic.List<Sprite> sprites = new System.Collections.Generic.List<Sprite>();
         
-        Debug.Log($"🔍 Loading sprites: {baseName} - {animationType}");
+        Debug.Log($"🔍 Loading {animationType} sprites for {baseName}...");
         
-        switch (animationType)
+        switch (animationType.ToLower())
         {
             case "rest":
-                Sprite restSprite = Resources.Load<Sprite>("Enemies/" + baseName + "_rest");
-                if (restSprite == null)
-                {
-                    restSprite = Resources.Load<Sprite>(baseName + "_rest");
-                }
-                if (restSprite != null) 
-                {
-                    sprites.Add(restSprite);
-                    Debug.Log($"   ✅ Found rest sprite: {restSprite.name}");
-                }
-                else
-                {
-                    Debug.LogWarning($"   ❌ Rest sprite not found for {baseName}");
-                }
-                break;
+                Sprite restA = Resources.Load<Sprite>("Enemies/" + baseName + "_rest_a");
+                Sprite restB = Resources.Load<Sprite>("Enemies/" + baseName + "_rest_b");
                 
-            case "walk":
-                Sprite walkSpriteA = Resources.Load<Sprite>("Enemies/" + baseName + "_walk_a");
-                Sprite walkSpriteB = Resources.Load<Sprite>("Enemies/" + baseName + "_walk_b");
+                if (restA == null) restA = Resources.Load<Sprite>(baseName + "_rest_a");
+                if (restB == null) restB = Resources.Load<Sprite>(baseName + "_rest_b");
                 
-                if (walkSpriteA == null) walkSpriteA = Resources.Load<Sprite>(baseName + "_walk_a");
-                if (walkSpriteB == null) walkSpriteB = Resources.Load<Sprite>(baseName + "_walk_b");
-                
-                if (walkSpriteA != null) 
+                if (restA != null)
                 {
-                    sprites.Add(walkSpriteA);
-                    Debug.Log($"   ✅ Found walk_a sprite: {walkSpriteA.name}");
+                    sprites.Add(restA);
+                    Debug.Log($"   ✅ Found rest_a sprite: {restA.name}");
                 }
-                if (walkSpriteB != null) 
+                if (restB != null)
                 {
-                    sprites.Add(walkSpriteB);
-                    Debug.Log($"   ✅ Found walk_b sprite: {walkSpriteB.name}");
-                }
-                
-                if (sprites.Count == 0)
-                {
-                    Sprite moveSpriteA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
-                    Sprite moveSpriteB = Resources.Load<Sprite>("Enemies/" + baseName + "_move_b");
-                    
-                    if (moveSpriteA == null) moveSpriteA = Resources.Load<Sprite>(baseName + "_move_a");
-                    if (moveSpriteB == null) moveSpriteB = Resources.Load<Sprite>(baseName + "_move_b");
-                    
-                    if (moveSpriteA != null) 
-                    {
-                        sprites.Add(moveSpriteA);
-                        Debug.Log($"   ✅ Found move_a sprite: {moveSpriteA.name}");
-                    }
-                    if (moveSpriteB != null) 
-                    {
-                        sprites.Add(moveSpriteB);
-                        Debug.Log($"   ✅ Found move_b sprite: {moveSpriteB.name}");
-                    }
+                    sprites.Add(restB);
+                    Debug.Log($"   ✅ Found rest_b sprite: {restB.name}");
                 }
                 break;
                 
             case "move":
-                Sprite moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_a");
-                Sprite moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_b");
+                Sprite moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
+                Sprite moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_move_b");
                 
-                if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_a");
-                if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_b");
+                if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_move_a");
+                if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_move_b");
                 
-                if (moveA != null) 
+                if (moveA != null)
                 {
                     sprites.Add(moveA);
-                    Debug.Log($"   ✅ Found _a sprite: {moveA.name}");
+                    Debug.Log($"   ✅ Found move_a sprite: {moveA.name}");
                 }
-                if (moveB != null) 
+                if (moveB != null)
                 {
                     sprites.Add(moveB);
-                    Debug.Log($"   ✅ Found _b sprite: {moveB.name}");
-                }
-                
-                if (sprites.Count == 0)
-                {
-                    moveA = Resources.Load<Sprite>("Enemies/" + baseName + "_move_a");
-                    moveB = Resources.Load<Sprite>("Enemies/" + baseName + "_move_b");
-                    
-                    if (moveA == null) moveA = Resources.Load<Sprite>(baseName + "_move_a");
-                    if (moveB == null) moveB = Resources.Load<Sprite>(baseName + "_move_b");
-                    
-                    if (moveA != null) 
-                    {
-                        sprites.Add(moveA);
-                        Debug.Log($"   ✅ Found move_a sprite: {moveA.name}");
-                    }
-                    if (moveB != null) 
-                    {
-                        sprites.Add(moveB);
-                        Debug.Log($"   ✅ Found move_b sprite: {moveB.name}");
-                    }
+                    Debug.Log($"   ✅ Found move_b sprite: {moveB.name}");
                 }
                 break;
                 
@@ -585,27 +401,27 @@ public class EnemyAI : MonoBehaviour
                 if (jump == null) jump = Resources.Load<Sprite>(baseName + "_jump");
                 if (fly == null) fly = Resources.Load<Sprite>(baseName + "_fly");
                 
-                if (attackA != null) 
+                if (attackA != null)
                 {
                     sprites.Add(attackA);
                     Debug.Log($"   ✅ Found attack_a sprite: {attackA.name}");
                 }
-                if (attackB != null) 
+                if (attackB != null)
                 {
                     sprites.Add(attackB);
                     Debug.Log($"   ✅ Found attack_b sprite: {attackB.name}");
                 }
-                if (attackRest != null) 
+                if (attackRest != null)
                 {
                     sprites.Add(attackRest);
                     Debug.Log($"   ✅ Found attack_rest sprite: {attackRest.name}");
                 }
-                if (jump != null) 
+                if (jump != null)
                 {
                     sprites.Add(jump);
                     Debug.Log($"   ✅ Found jump sprite: {jump.name}");
                 }
-                if (fly != null) 
+                if (fly != null)
                 {
                     sprites.Add(fly);
                     Debug.Log($"   ✅ Found fly sprite: {fly.name}");
@@ -615,7 +431,7 @@ public class EnemyAI : MonoBehaviour
             case "idle":
                 Sprite idle = Resources.Load<Sprite>("Enemies/" + baseName + "_idle");
                 if (idle == null) idle = Resources.Load<Sprite>(baseName + "_idle");
-                if (idle != null) 
+                if (idle != null)
                 {
                     sprites.Add(idle);
                     Debug.Log($"   ✅ Found idle sprite: {idle.name}");
@@ -629,12 +445,12 @@ public class EnemyAI : MonoBehaviour
                 if (flat == null) flat = Resources.Load<Sprite>(baseName + "_flat");
                 if (shell == null) shell = Resources.Load<Sprite>(baseName + "_shell");
                 
-                if (flat != null) 
+                if (flat != null)
                 {
                     sprites.Add(flat);
                     Debug.Log($"   ✅ Found flat sprite: {flat.name}");
                 }
-                if (shell != null) 
+                if (shell != null)
                 {
                     sprites.Add(shell);
                     Debug.Log($"   ✅ Found shell sprite: {shell.name}");
@@ -642,7 +458,10 @@ public class EnemyAI : MonoBehaviour
                 break;
         }
         
-        Debug.Log($"📊 Total loaded {sprites.Count} sprites for {baseName} - {animationType}");
+        if (sprites.Count == 0)
+        {
+            Debug.LogWarning($"⚠️ No sprites found for {baseName} {animationType}");
+        }
         
         return sprites.ToArray();
     }
@@ -651,7 +470,11 @@ public class EnemyAI : MonoBehaviour
     {
         startPosition = transform.position;
         
-        if (canPatrol && patrolPoints.Length > 0)
+        if (guardianType == GuardianType.Stationary)
+        {
+            currentState = EnemyState.Idle;
+        }
+        else if (canPatrol && patrolPoints.Length > 0)
         {
             currentState = EnemyState.Patrol;
         }
@@ -675,7 +498,7 @@ public class EnemyAI : MonoBehaviour
             spriteRenderer.color = normalColor;
         }
         
-        Debug.Log($"🤖 AI initialized for {gameObject.name} - State: {currentState}");
+        Debug.Log($"🤖 AI initialized for {gameObject.name} - State: {currentState}, Guardian Type: {guardianType}");
     }
     
     void Update()
@@ -689,99 +512,13 @@ public class EnemyAI : MonoBehaviour
         UpdateAiming();
     }
     
-    void UpdateAnimation()
-    {
-        if (currentAnimationSprites == null || currentAnimationSprites.Length == 0) return;
-        
-        animationTimer += Time.deltaTime;
-        
-        if (animationTimer >= animationSpeed)
-        {
-            animationTimer = 0f;
-            
-            if (loopAnimations)
-            {
-                currentSpriteIndex = (currentSpriteIndex + 1) % currentAnimationSprites.Length;
-            }
-            else
-            {
-                if (currentSpriteIndex < currentAnimationSprites.Length - 1)
-                {
-                    currentSpriteIndex++;
-                }
-            }
-            
-            if (currentSpriteIndex < currentAnimationSprites.Length && spriteRenderer != null)
-            {
-                Sprite previousSprite = spriteRenderer.sprite;
-                spriteRenderer.sprite = currentAnimationSprites[currentSpriteIndex];
-                
-                // OTOMATIS update collider jika sprite berubah ukuran
-                if (previousSprite != spriteRenderer.sprite)
-                {
-                    UpdateColliderForCurrentSprite();
-                }
-            }
-        }
-    }
-    
-    void PlayAnimation(AnimationState newState)
-    {
-        if (currentAnimationState == newState) return;
-        
-        currentAnimationState = newState;
-        currentSpriteIndex = 0;
-        animationTimer = 0f;
-        
-        switch (newState)
-        {
-            case AnimationState.Idle:
-                currentAnimationSprites = idleSprites;
-                break;
-                
-            case AnimationState.Walk:
-                currentAnimationSprites = walkSprites;
-                break;
-                
-            case AnimationState.Attack:
-                currentAnimationSprites = attackSprites;
-                break;
-                
-            case AnimationState.Alert:
-                currentAnimationSprites = alertSprites;
-                break;
-                
-            case AnimationState.Death:
-                currentAnimationSprites = deathSprites;
-                loopAnimations = false;
-                break;
-        }
-        
-        // PERBAIKAN: Pastikan sprite di-set dengan benar
-        if (currentAnimationSprites != null && currentAnimationSprites.Length > 0 && spriteRenderer != null)
-        {
-            if (currentAnimationSprites[0] != null)
-            {
-                spriteRenderer.sprite = currentAnimationSprites[0];
-                Debug.Log($"🎬 Playing animation: {newState} - Sprite: {currentAnimationSprites[0].name}");
-            }
-            else
-            {
-                Debug.LogWarning($"⚠️ Animation sprite is null for {newState}");
-            }
-        }
-        else
-        {
-            Debug.LogWarning($"⚠️ No animation sprites found for {newState}");
-        }
-    }
-    
     void DetectPlayer()
     {
         if (player == null) return;
         
         float distanceToPlayer = Vector2.Distance(transform.position, player.position);
         
+        // Check if player is in detection range
         if (distanceToPlayer <= detectionRange)
         {
             Vector2 directionToPlayer = (player.position - transform.position).normalized;
@@ -789,6 +526,22 @@ public class EnemyAI : MonoBehaviour
             
             if (hit.collider == null || hit.collider.CompareTag("Player"))
             {
+                // For area guardians, check if player is in guard area
+                if (stayInGuardArea && guardianType != GuardianType.Patrol)
+                {
+                    float distanceFromCenter = Vector2.Distance(player.position, guardCenter);
+                    if (distanceFromCenter > guardAreaRadius)
+                    {
+                        // Player is outside guard area
+                        if (playerDetected)
+                        {
+                            Debug.Log($"🛡️ Player left {gameObject.name}'s guard area");
+                            OnPlayerLost();
+                        }
+                        return;
+                    }
+                }
+                
                 if (!playerDetected)
                 {
                     OnPlayerDetected();
@@ -808,7 +561,7 @@ public class EnemyAI : MonoBehaviour
         }
         
         playerInRange = distanceToPlayer <= attackRange;
-        playerInShootRange = distanceToPlayer <= shootRange && distanceToPlayer > attackRange;
+        playerInShootRange = distanceToPlayer <= shootRange;
     }
     
     void UpdateAI()
@@ -847,6 +600,36 @@ public class EnemyAI : MonoBehaviour
     
     void HandleIdleState()
     {
+        if (guardianType == GuardianType.Stationary)
+        {
+            // Stationary guardian - don't move, just detect and attack
+            if (useGravity)
+            {
+                rb.velocity = new Vector2(0, rb.velocity.y);
+            }
+            else
+            {
+                rb.velocity = Vector2.zero;
+            }
+            
+            PlayAnimation(AnimationState.Idle);
+            
+            if (playerDetected)
+            {
+                if (playerInRange && canAttack)
+                {
+                    ChangeState(EnemyState.Attack);
+                }
+                else if (playerInShootRange && canShoot && HasClearShot())
+                {
+                    ChangeState(EnemyState.Shoot);
+                }
+                // Stationary guardians don't chase
+            }
+            return;
+        }
+        
+        // Original idle behavior for non-stationary
         if (useGravity)
         {
             rb.velocity = new Vector2(0, rb.velocity.y);
@@ -864,12 +647,12 @@ public class EnemyAI : MonoBehaviour
             {
                 ChangeState(EnemyState.Shoot);
             }
-            else if (canChase)
+            else if (canChase && guardianType != GuardianType.Stationary)
             {
                 ChangeState(EnemyState.Chase);
             }
         }
-        else if (canPatrol && patrolPoints.Length > 0)
+        else if (canPatrol && patrolPoints.Length > 0 && guardianType != GuardianType.Stationary)
         {
             ChangeState(EnemyState.Patrol);
         }
@@ -879,7 +662,7 @@ public class EnemyAI : MonoBehaviour
     {
         PlayAnimation(AnimationState.Walk);
         
-        if (playerDetected && canChase)
+        if (playerDetected && canChase && guardianType != GuardianType.Stationary)
         {
             ChangeState(EnemyState.Chase);
             return;
@@ -937,17 +720,33 @@ public class EnemyAI : MonoBehaviour
         PlayAnimation(AnimationState.Alert);
         
         waitTimer -= Time.deltaTime;
+        
         if (waitTimer <= 0f)
         {
             if (playerDetected)
             {
-                if (isBarnacle && canShoot)
+                if (guardianType == GuardianType.Stationary)
                 {
-                    ChangeState(EnemyState.Shoot);
+                    if (playerInRange && canAttack)
+                    {
+                        ChangeState(EnemyState.Attack);
+                    }
+                    else if (playerInShootRange && canShoot)
+                    {
+                        ChangeState(EnemyState.Shoot);
+                    }
+                    else
+                    {
+                        ChangeState(EnemyState.Idle);
+                    }
                 }
                 else if (canChase)
                 {
                     ChangeState(EnemyState.Chase);
+                }
+                else
+                {
+                    ChangeState(EnemyState.Idle);
                 }
             }
             else
@@ -981,6 +780,19 @@ public class EnemyAI : MonoBehaviour
             return;
         }
         
+        // Check if player is still in guard area for area guardians
+        if (stayInGuardArea && guardianType != GuardianType.Patrol)
+        {
+            float distanceFromCenter = Vector2.Distance(player.position, guardCenter);
+            if (distanceFromCenter > guardAreaRadius)
+            {
+                // Player left guard area, return to guard position
+                Debug.Log($"🛡️ {gameObject.name}: Player left guard area, returning to position");
+                ChangeState(EnemyState.Return);
+                return;
+            }
+        }
+        
         if (playerInRange && canAttack)
         {
             ChangeState(EnemyState.Attack);
@@ -993,7 +805,11 @@ public class EnemyAI : MonoBehaviour
             return;
         }
         
-        MoveTowardsTarget(player.position, chaseSpeed);
+        // Only chase if not stationary
+        if (guardianType != GuardianType.Stationary)
+        {
+            MoveTowardsTarget(player.position, chaseSpeed);
+        }
     }
     
     void HandleAttackState()
@@ -1011,7 +827,7 @@ public class EnemyAI : MonoBehaviour
         
         if (!playerInRange)
         {
-            if (playerDetected)
+            if (playerDetected && guardianType != GuardianType.Stationary)
             {
                 ChangeState(EnemyState.Chase);
             }
@@ -1050,7 +866,7 @@ public class EnemyAI : MonoBehaviour
         
         if (!playerDetected)
         {
-            if (isBarnacle)
+            if (isBarnacle || guardianType == GuardianType.Stationary)
             {
                 ChangeState(EnemyState.Idle);
             }
@@ -1061,7 +877,7 @@ public class EnemyAI : MonoBehaviour
             return;
         }
         
-        if (playerInRange && canAttack && !isBarnacle)
+        if (playerInRange && canAttack && !isBarnacle && guardianType != GuardianType.Stationary)
         {
             ChangeState(EnemyState.Attack);
             return;
@@ -1069,7 +885,7 @@ public class EnemyAI : MonoBehaviour
         
         if (!playerInShootRange)
         {
-            if (!isBarnacle)
+            if (!isBarnacle && guardianType != GuardianType.Stationary)
             {
                 ChangeState(EnemyState.Chase);
             }
@@ -1097,18 +913,44 @@ public class EnemyAI : MonoBehaviour
             PlayAnimation(AnimationState.Idle);
         }
         
-        if (playerDetected && canChase)
+        if (playerDetected && canChase && guardianType != GuardianType.Stationary)
         {
-            ChangeState(EnemyState.Chase);
-            return;
+            // Check if player is in guard area for area guardians
+            if (stayInGuardArea && guardianType != GuardianType.Patrol)
+            {
+                float distanceFromCenter = Vector2.Distance(player.position, guardCenter);
+                if (distanceFromCenter <= guardAreaRadius)
+                {
+                    ChangeState(EnemyState.Chase);
+                    return;
+                }
+            }
+            else if (guardianType == GuardianType.Patrol)
+            {
+                ChangeState(EnemyState.Chase);
+                return;
+            }
         }
         
-        Vector2 targetPosition = patrolPoints.Length > 0 ? patrolPoints[currentPatrolIndex].position : startPosition;
+        Vector2 targetPosition;
+        if (guardianType == GuardianType.Stationary || stayInGuardArea)
+        {
+            targetPosition = guardCenter; // Return to guard center
+        }
+        else
+        {
+            targetPosition = patrolPoints.Length > 0 ? patrolPoints[currentPatrolIndex].position : startPosition;
+        }
+        
         MoveTowardsTarget(targetPosition, moveSpeed);
         
         if (Vector2.Distance(transform.position, targetPosition) < 0.5f)
         {
-            if (canPatrol && patrolPoints.Length > 0)
+            if (guardianType == GuardianType.Stationary)
+            {
+                ChangeState(EnemyState.Idle);
+            }
+            else if (canPatrol && patrolPoints.Length > 0)
             {
                 ChangeState(EnemyState.Patrol);
             }
@@ -1213,6 +1055,7 @@ public class EnemyAI : MonoBehaviour
         }
         
         PlaySound(attackSound);
+        Debug.Log($"🎯 {gameObject.name} shot at player!");
     }
     
     void PerformAttack()
@@ -1221,14 +1064,24 @@ public class EnemyAI : MonoBehaviour
         
         lastAttackTime = Time.time;
         
+        // Try both HealthSystem and PlayerHealth for compatibility
         HealthSystem playerHealth = player.GetComponent<HealthSystem>();
         if (playerHealth != null)
         {
             playerHealth.TakeDamage(attackDamage);
         }
+        else
+        {
+            PlayerHealth playerHealthAlt = player.GetComponent<PlayerHealth>();
+            if (playerHealthAlt != null)
+            {
+                playerHealthAlt.TakeDamage(attackDamage);
+            }
+        }
         
         PlaySound(attackSound);
         StartCoroutine(ShowAttackEffect());
+        Debug.Log($"⚔️ {gameObject.name} attacked player for {attackDamage} damage!");
     }
     
     void UpdateAiming()
@@ -1261,6 +1114,8 @@ public class EnemyAI : MonoBehaviour
         
         ChangeState(EnemyState.Alert);
         waitTimer = 1f;
+        
+        Debug.Log($"👁️ {gameObject.name} detected player!");
     }
     
     void OnPlayerLost()
@@ -1272,7 +1127,7 @@ public class EnemyAI : MonoBehaviour
             alertEffect.SetActive(false);
         }
         
-        if (returnToPatrolAfterLose)
+        if (returnToPatrolAfterLose && guardianType != GuardianType.Stationary)
         {
             ChangeState(EnemyState.Return);
         }
@@ -1280,10 +1135,15 @@ public class EnemyAI : MonoBehaviour
         {
             ChangeState(EnemyState.Idle);
         }
+        
+        Debug.Log($"👁️‍🗨️ {gameObject.name} lost player!");
     }
     
     void ChangeState(EnemyState newState)
     {
+        if (currentState == newState) return;
+        
+        Debug.Log($"🔄 {gameObject.name} state: {currentState} → {newState}");
         currentState = newState;
         
         switch (newState)
@@ -1318,6 +1178,69 @@ public class EnemyAI : MonoBehaviour
         spriteRenderer.color = Color.Lerp(spriteRenderer.color, targetColor, Time.deltaTime * 5f);
     }
     
+    void UpdateAnimation()
+    {
+        if (currentAnimationSprites == null || currentAnimationSprites.Length == 0) return;
+        
+        animationTimer += Time.deltaTime;
+        
+        if (animationTimer >= animationSpeed)
+        {
+            animationTimer = 0f;
+            currentSpriteIndex++;
+            
+            if (currentSpriteIndex >= currentAnimationSprites.Length)
+            {
+                if (loopAnimations)
+                {
+                    currentSpriteIndex = 0;
+                }
+                else
+                {
+                    currentSpriteIndex = currentAnimationSprites.Length - 1;
+                }
+            }
+            
+            if (spriteRenderer != null)
+            {
+                spriteRenderer.sprite = currentAnimationSprites[currentSpriteIndex];
+            }
+        }
+    }
+    
+    void PlayAnimation(AnimationState animationState)
+    {
+        if (currentAnimationState == animationState) return;
+        
+        currentAnimationState = animationState;
+        currentSpriteIndex = 0;
+        animationTimer = 0f;
+        
+        switch (animationState)
+        {
+            case AnimationState.Idle:
+                currentAnimationSprites = idleSprites;
+                break;
+            case AnimationState.Walk:
+                currentAnimationSprites = walkSprites;
+                break;
+            case AnimationState.Attack:
+                currentAnimationSprites = attackSprites;
+                break;
+            case AnimationState.Alert:
+                currentAnimationSprites = alertSprites;
+                break;
+            case AnimationState.Death:
+                currentAnimationSprites = deathSprites;
+                break;
+        }
+        
+        if (currentAnimationSprites != null && currentAnimationSprites.Length > 0 && spriteRenderer != null)
+        {
+            spriteRenderer.sprite = currentAnimationSprites[0];
+        }
+    }
+    
     void PlaySound(AudioClip clip)
     {
         if (audioSource != null && clip != null)
@@ -1326,82 +1249,162 @@ public class EnemyAI : MonoBehaviour
         }
     }
     
+    // Public methods untuk external use
     public void TakeDamage(int damage)
     {
         if (isDead) return;
         
         currentHealth -= damage;
+        currentHealth = Mathf.Max(0, currentHealth);
+        
+        PlaySound(hurtSound);
+        
+        if (damageEffect != null)
+        {
+            GameObject effect = Instantiate(damageEffect, transform.position, Quaternion.identity);
+            Destroy(effect, 1f);
+        }
         
         if (currentHealth <= 0)
         {
             Die();
         }
-        else
-        {
-            StartCoroutine(FlashRed());
-        }
+        
+        Debug.Log($"💥 {gameObject.name} took {damage} damage! Health: {currentHealth}/{maxHealth}");
     }
     
-    IEnumerator FlashRed()
+    public void Die()
     {
-        if (spriteRenderer != null)
-        {
-            Color original = spriteRenderer.color;
-            spriteRenderer.color = Color.red;
-            yield return new WaitForSeconds(0.1f);
-            spriteRenderer.color = original;
-        }
-    }
-    
-    void Die()
-    {
+        if (isDead) return;
+        
         isDead = true;
         ChangeState(EnemyState.Death);
         
+        PlaySound(deathSound);
+        
+        if (deathEffect != null)
+        {
+            GameObject effect = Instantiate(deathEffect, transform.position, Quaternion.identity);
+            Destroy(effect, 2f);
+        }
+        
+        // Disable collider
         if (enemyCollider != null)
         {
             enemyCollider.enabled = false;
         }
         
-        Destroy(gameObject, 2f);
+        // Destroy after death animation
+        Destroy(gameObject, 3f);
+        
+        Debug.Log($"💀 {gameObject.name} died!");
     }
     
     public void Stun(float duration)
     {
+        if (isDead) return;
+        
+        ChangeState(EnemyState.Stunned);
         StartCoroutine(StunCoroutine(duration));
+        
+        Debug.Log($"😵 {gameObject.name} stunned for {duration} seconds!");
     }
     
     IEnumerator StunCoroutine(float duration)
     {
-        EnemyState previousState = currentState;
-        ChangeState(EnemyState.Stunned);
-        
         yield return new WaitForSeconds(duration);
         
         if (!isDead)
         {
-            ChangeState(previousState);
+            ChangeState(EnemyState.Idle);
+        }
+    }
+    
+    // Gizmos untuk visualisasi di editor
+    void OnDrawGizmosSelected()
+    {
+        // Detection range
+        Gizmos.color = Color.yellow;
+        DrawWireCircle(transform.position, detectionRange);
+        
+        // Attack range
+        Gizmos.color = Color.red;
+        DrawWireCircle(transform.position, attackRange);
+        
+        // Shoot range
+        Gizmos.color = Color.blue;
+        DrawWireCircle(transform.position, shootRange);
+        
+        // Guard area
+        if (showGuardArea && guardianType != GuardianType.Patrol)
+        {
+            Gizmos.color = guardAreaColor;
+            Vector3 guardPos = Application.isPlaying ? (Vector3)guardCenter : transform.position;
+            DrawWireCircle(guardPos, guardAreaRadius);
+            
+            // Draw line to guard center
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawLine(transform.position, guardPos);
+        }
+        
+        // Patrol points
+        if (patrolPoints != null && patrolPoints.Length > 0)
+        {
+            Gizmos.color = Color.green;
+            for (int i = 0; i < patrolPoints.Length; i++)
+            {
+                if (patrolPoints[i] != null)
+                {
+                    Gizmos.DrawWireCube(patrolPoints[i].position, Vector3.one * 0.5f);
+                    
+                    // Draw path between patrol points
+                    if (i < patrolPoints.Length - 1 && patrolPoints[i + 1] != null)
+                    {
+                        Gizmos.DrawLine(patrolPoints[i].position, patrolPoints[i + 1].position);
+                    }
+                    else if (i == patrolPoints.Length - 1 && patrolPoints[0] != null)
+                    {
+                        Gizmos.DrawLine(patrolPoints[i].position, patrolPoints[0].position);
+                    }
+                }
+            }
         }
     }
 
-    // Method untuk debugging collision
-    void OnCollisionEnter2D(Collision2D collision)
+    private void DrawWireCircle(Vector3 center, float radius)
     {
-        Debug.Log($"Enemy {gameObject.name} bertabrakan dengan {collision.gameObject.name} (Tag: {collision.gameObject.tag})");
+        int segments = 32;
+        float angle = 0f;
+        Vector3 lastPos = center + new Vector3(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius, 0);
         
-        if (collision.gameObject.CompareTag("Ground") || ((1 << collision.gameObject.layer) & groundLayer) != 0)
+        for (int i = 1; i <= segments; i++)
         {
-            Debug.Log("Enemy menyentuh ground!");
-        }
-        
-        if (collision.gameObject.CompareTag("Player"))
-        {
-            Debug.Log("Enemy menyentuh player!");
+            angle = (float)i / segments * Mathf.PI * 2f;
+            Vector3 newPos = center + new Vector3(Mathf.Cos(angle) * radius, Mathf.Sin(angle) * radius, 0);
+            Gizmos.DrawLine(lastPos, newPos);
+            lastPos = newPos;
         }
     }
-
-    void OnTriggerEnter2D(Collider2D other)
+    
+    // Get/Set methods untuk external access
+    public EnemyState GetCurrentState() { return currentState; }
+    public GuardianType GetGuardianType() { return guardianType; }
+    public bool IsPlayerDetected() { return playerDetected; }
+    public bool IsDead() { return isDead; }
+    public int GetCurrentHealth() { return currentHealth; }
+    public int GetMaxHealth() { return maxHealth; }
+    public Vector2 GetGuardCenter() { return guardCenter; }
+    public float GetGuardRadius() { return guardAreaRadius; }
+    
+    public void SetGuardCenter(Vector2 newCenter)
     {
-        Debug.Log($"Enemy {gameObject.name} trigger dengan {other.gameObject.name} (Tag: {other.gameObject.tag})");
+        guardCenter = newCenter;
+        Debug.Log($"🛡️ {gameObject.name} guard center updated to {guardCenter}");
+    }
+    
+    public void SetGuardRadius(float newRadius)
+    {
+        guardAreaRadius = newRadius;
+        Debug.Log($"🛡️ {gameObject.name} guard radius updated to {guardAreaRadius}");
     }
 }
