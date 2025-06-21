@@ -77,74 +77,24 @@ public class EnemyCollision : MonoBehaviour
     {
         if (damageOnlyOnce && hasDealtDamage) return;
         
-        bool isInvulnerable = false;
-        bool damageDealt = false;
+        // Kirim damage message ke player object
+        // Player harus memiliki method untuk menerima damage
+        player.SendMessage("TakeDamage", contactDamage, SendMessageOptions.DontRequireReceiver);
         
-        // PERBAIKAN: Try HealthSystem first
-        HealthSystem playerHealth = player.GetComponent<HealthSystem>();
-        if (playerHealth != null)
+        hasDealtDamage = true;
+        
+        if (audioSource != null && hitSound != null)
         {
-            // PERBAIKAN: Safe check untuk IsInvulnerable
-            try
-            {
-                isInvulnerable = playerHealth.IsInvulnerable();
-            }
-            catch (System.Exception)
-            {
-                // Method tidak ada, assume tidak invulnerable
-                isInvulnerable = false;
-            }
-            
-            if (!isInvulnerable)
-            {
-                playerHealth.TakeDamage(contactDamage);
-                damageDealt = true;
-            }
-        }
-        else
-        {
-            // PERBAIKAN: Try PlayerHealth as fallback
-            PlayerHealth playerHealthAlt = player.GetComponent<PlayerHealth>();
-            if (playerHealthAlt != null)
-            {
-                try
-                {
-                    isInvulnerable = playerHealthAlt.IsInvulnerable();
-                }
-                catch (System.Exception)
-                {
-                    isInvulnerable = false;
-                }
-                
-                if (!isInvulnerable)
-                {
-                    playerHealthAlt.TakeDamage(contactDamage);
-                    damageDealt = true;
-                }
-            }
+            audioSource.PlayOneShot(hitSound);
         }
         
-        if (damageDealt)
+        if (hitEffect != null)
         {
-            hasDealtDamage = true;
-            
-            if (audioSource != null && hitSound != null)
-            {
-                audioSource.PlayOneShot(hitSound);
-            }
-            
-            if (hitEffect != null)
-            {
-                GameObject effect = Instantiate(hitEffect, transform.position, Quaternion.identity);
-                Destroy(effect, 2f);
-            }
-            
-            Debug.Log($"💥 Enemy {gameObject.name} memberikan {contactDamage} damage kepada player!");
+            GameObject effect = Instantiate(hitEffect, transform.position, Quaternion.identity);
+            Destroy(effect, 2f);
         }
-        else
-        {
-            Debug.Log($"🛡️ Player tidak bisa menerima damage (invulnerable atau tidak ada health system)");
-        }
+        
+        Debug.Log($"💥 Enemy {gameObject.name} memberikan {contactDamage} damage kepada player!");
     }
     
     public void ResetDamage()

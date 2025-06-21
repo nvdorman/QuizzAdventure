@@ -23,6 +23,10 @@ public class EnemyAI : MonoBehaviour
     [Header("Animation Settings")]
     [SerializeField] private float animationSpeed = 0.5f;
     [SerializeField] private bool loopAnimations = true;
+
+    [Header("Instant Kill Settings")]
+    public bool killPlayerOnContact = false;
+    private GameOverManager gameOverManager;
     
     [Header("Barnacle Specific Settings")]
     public bool isBarnacle = false;
@@ -179,9 +183,58 @@ public class EnemyAI : MonoBehaviour
         InitializeAI();
         currentHealth = maxHealth;
     }
+
+    void OnTriggerEnter2D(Collider2D other)
+    {
+        if (other.CompareTag("Player") && killPlayerOnContact)
+        {
+            KillPlayer(other.gameObject);
+        }
+    }
+
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Player") && killPlayerOnContact)
+        {
+            KillPlayer(collision.gameObject);
+        }
+    }
+
+    void KillPlayer(GameObject player)
+    {
+        Debug.Log($"💀 {gameObject.name} membunuh player!");
+        
+        // Play death effect
+        if (deathEffect != null)
+        {
+            GameObject effect = Instantiate(deathEffect, player.transform.position, Quaternion.identity);
+            Destroy(effect, 2f);
+        }
+        
+        // Play death sound
+        if (audioSource != null && deathSound != null)
+        {
+            audioSource.PlayOneShot(deathSound);
+        }
+        
+        // Trigger Game Over
+        if (gameOverManager != null)
+        {
+            gameOverManager.ActivateGameOver();
+        }
+        else
+        {
+            Debug.LogError("GameOverManager tidak ditemukan! Tidak bisa trigger game over.");
+        }
+    }
     
     void InitializeComponents()
     {
+        gameOverManager = FindObjectOfType<GameOverManager>();
+        if (gameOverManager == null)
+        {
+            Debug.LogWarning("GameOverManager tidak ditemukan! Enemy tidak bisa trigger game over.");
+        }
         // Auto-create Rigidbody2D if missing
         rb = GetComponent<Rigidbody2D>();
         if (rb == null)
@@ -1117,24 +1170,22 @@ public class EnemyAI : MonoBehaviour
         Vector2 direction = (player.position - firePoint.position).normalized;
         
         GameObject bullet = Instantiate(bulletPrefab, firePoint.position, Quaternion.identity);
-        Bullet bulletScript = bullet.GetComponent<Bullet>();
         
-        if (bulletScript != null)
+        // PERBAIKAN: Hapus referensi ke Bullet script yang tidak ada
+        // Langsung berikan velocity ke bullet
+        Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
+        if (bulletRb != null)
         {
-            bulletScript.Initialize(direction, false, bulletDamage);
+            bulletRb.velocity = direction * bulletSpeed;
         }
-        else
-        {
-            Rigidbody2D bulletRb = bullet.GetComponent<Rigidbody2D>();
-            if (bulletRb != null)
-            {
-                bulletRb.velocity = direction * bulletSpeed;
-            }
-        }
+        
+        // Auto destroy bullet setelah 5 detik untuk menghindari memory leak
+        Destroy(bullet, 5f);
         
         PlaySound(attackSound);
         Debug.Log($"🎯 {gameObject.name} shot at player!");
     }
+
     
     void PerformAttack()
     {
@@ -1142,20 +1193,9 @@ public class EnemyAI : MonoBehaviour
         
         lastAttackTime = Time.time;
         
-        // Try both HealthSystem and PlayerHealth for compatibility
-        HealthSystem playerHealth = player.GetComponent<HealthSystem>();
-        if (playerHealth != null)
-        {
-            playerHealth.TakeDamage(attackDamage);
-        }
-        else
-        {
-            PlayerHealth playerHealthAlt = player.GetComponent<PlayerHealth>();
-            if (playerHealthAlt != null)
-            {
-                playerHealthAlt.TakeDamage(attackDamage);
-            }
-        }
+        // PERBAIKAN: Hapus referensi ke HealthSystem dan PlayerHealth yang tidak ada
+        // Gunakan SendMessage sebagai alternatif
+        player.SendMessage("TakeDamage", attackDamage, SendMessageOptions.DontRequireReceiver);
         
         PlaySound(attackSound);
         StartCoroutine(ShowAttackEffect());
