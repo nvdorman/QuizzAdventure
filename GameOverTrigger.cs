@@ -1,30 +1,24 @@
 using UnityEngine;
-using UnityEngine.Tilemaps;
 using System.Collections;
 
 public class GameOverTrigger : MonoBehaviour
 {
     [Header("Game Over Settings")]
     public Canvas gameOverCanvas;
-    public GameOverManager gameOverManager; // Reference ke GameOverManager
+    public GameOverManager gameOverManager;
     public string playerTag = "Player";
-    public bool pauseGameOnGameOver = true;
     
     [Header("Dangerous Tags")]
     public string[] dangerousTags = {"Water", "Lava", "Spike", "Poison"};
     
     [Header("Delay Settings")]
-    public float gameOverDelay = 2.0f;
+    public float gameOverDelay = 1.0f;
     public bool disablePlayerImmediately = false;
-    public bool showCountdown = true;
     
     [Header("Visual Effects")]
     public GameObject warningEffect;
-    public Color playerFlashColor = Color.red;
-    public float flashSpeed = 8f;
-    
-    [Header("Enhanced Visual Effects")]
     public Color[] flashColors = {Color.red, Color.yellow, Color.white};
+    public float flashSpeed = 8f;
     public float fadeOutDuration = 1.0f;
     public AudioClip deathSound;
     
@@ -41,9 +35,9 @@ public class GameOverTrigger : MonoBehaviour
         }
         
         // Auto-find GameOverManager jika tidak diassign
-        if (gameOverManager == null && gameOverCanvas != null)
+        if (gameOverManager == null)
         {
-            gameOverManager = gameOverCanvas.GetComponent<GameOverManager>();
+            gameOverManager = FindObjectOfType<GameOverManager>();
         }
         
         // Setup audio source
@@ -82,9 +76,21 @@ public class GameOverTrigger : MonoBehaviour
     {
         foreach (string tag in dangerousTags)
         {
-            if (obj.CompareTag(tag))
+            try
             {
-                return true;
+                if (obj.CompareTag(tag))
+                {
+                    return true;
+                }
+            }
+            catch (UnityException e)
+            {
+                Debug.LogWarning($"⚠️ Tag '{tag}' is not defined! Error: {e.Message}");
+                // Fallback: cek berdasarkan nama
+                if (obj.name.ToLower().Contains(tag.ToLower()))
+                {
+                    return true;
+                }
             }
         }
         return false;
@@ -92,7 +98,7 @@ public class GameOverTrigger : MonoBehaviour
     
     private IEnumerator TriggerGameOverWithDelay(GameObject player)
     {
-        Debug.Log("Player hit dangerous area! Game Over in " + gameOverDelay + " seconds...");
+        Debug.Log($"💀 Player hit dangerous area! Game Over in {gameOverDelay} seconds...");
         
         if (warningEffect != null)
         {
@@ -114,18 +120,7 @@ public class GameOverTrigger : MonoBehaviour
         
         StartCoroutine(EnhancedFlashPlayer());
         
-        if (showCountdown)
-        {
-            for (int i = Mathf.FloorToInt(gameOverDelay); i > 0; i--)
-            {
-                Debug.Log("Game Over in: " + i);
-                yield return new WaitForSeconds(1f);
-            }
-        }
-        else
-        {
-            yield return new WaitForSeconds(gameOverDelay);
-        }
+        yield return new WaitForSeconds(gameOverDelay);
         
         StopCoroutine(EnhancedFlashPlayer());
         StartCoroutine(FadeOutPlayer());
@@ -137,23 +132,18 @@ public class GameOverTrigger : MonoBehaviour
     
     private IEnumerator EnhancedFlashPlayer()
     {
+        if (playerRenderer == null) yield break;
+        
         int colorIndex = 0;
         while (true)
         {
-            if (playerRenderer != null)
-            {
-                playerRenderer.color = flashColors[colorIndex % flashColors.Length];
-                yield return new WaitForSeconds(1f / flashSpeed);
-                
-                playerRenderer.color = originalPlayerColor;
-                yield return new WaitForSeconds(1f / flashSpeed);
-                
-                colorIndex++;
-            }
-            else
-            {
-                yield break;
-            }
+            playerRenderer.color = flashColors[colorIndex % flashColors.Length];
+            yield return new WaitForSeconds(1f / flashSpeed);
+            
+            playerRenderer.color = originalPlayerColor;
+            yield return new WaitForSeconds(1f / flashSpeed);
+            
+            colorIndex++;
         }
     }
     
@@ -181,31 +171,24 @@ public class GameOverTrigger : MonoBehaviour
             warningEffect.SetActive(false);
         }
         
-        DisablePlayer(player);
-        
-        if (gameOverCanvas != null)
+        // Langsung trigger game over tanpa health system
+        if (gameOverManager != null)
         {
-            gameOverCanvas.gameObject.SetActive(true);
-            
-            // Panggil ActivateGameOver() untuk pause game
-            if (gameOverManager != null)
-            {
-                gameOverManager.ActivateGameOver();
-            }
+            Debug.Log("💀 Triggering Game Over via GameOverManager");
+            gameOverManager.ActivateGameOver();
         }
-        
-        Debug.Log("Game Over! Player touched dangerous area!");
+        else
+        {
+            Debug.LogError("❌ GameOverManager tidak ditemukan!");
+        }
     }
     
     private void DisablePlayer(GameObject player)
     {
-        MonoBehaviour[] playerScripts = player.GetComponents<MonoBehaviour>();
-        foreach (MonoBehaviour script in playerScripts)
+        PlayerController2D playerController = player.GetComponent<PlayerController2D>();
+        if (playerController != null)
         {
-            if (script != this && script.GetType().Name != "Transform")
-            {
-                script.enabled = false;
-            }
+            playerController.enabled = false;
         }
         
         Rigidbody2D playerRb = player.GetComponent<Rigidbody2D>();
@@ -214,23 +197,5 @@ public class GameOverTrigger : MonoBehaviour
             playerRb.velocity = Vector2.zero;
             playerRb.isKinematic = true;
         }
-    }
-    
-    public void ResetGameOverState()
-    {
-        gameOverTriggered = false;
-        StopAllCoroutines();
-        
-        if (playerRenderer != null)
-        {
-            playerRenderer.color = originalPlayerColor;
-        }
-        
-        if (warningEffect != null)
-        {
-            warningEffect.SetActive(false);
-        }
-        
-        Time.timeScale = 1f;
     }
 }

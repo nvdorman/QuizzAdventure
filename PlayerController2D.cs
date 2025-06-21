@@ -148,11 +148,24 @@ public class PlayerController2D : MonoBehaviour
 
     void Start()
     {
+        // PERBAIKAN SPRITE TRANSPARAN - Pastikan sprite dan warna di-set dengan benar
         if (spriteRenderer != null && currentCharacterSprites.idle != null)
         {
             spriteRenderer.sprite = currentCharacterSprites.idle;
+            spriteRenderer.color = Color.white; // PASTIKAN TIDAK TRANSPARAN
             originalColor = spriteRenderer.color;
             UpdateColliderToFitSprite(currentCharacterSprites.idle);
+            Debug.Log($"✅ Sprite berhasil di-set: {currentCharacterSprites.idle.name} dengan warna: {spriteRenderer.color}");
+        }
+        else
+        {
+            Debug.LogError("❌ SpriteRenderer atau sprite idle tidak ditemukan! Cek apakah sprite ada di Resources folder!");
+            // Fallback - buat sprite renderer dengan warna solid jika sprite tidak ada
+            if (spriteRenderer != null)
+            {
+                spriteRenderer.color = Color.cyan; // Warna fallback yang terlihat
+                Debug.LogWarning("⚠️ Menggunakan warna fallback untuk sprite");
+            }
         }
 
         // Auto-find GameOverManager if not assigned
@@ -193,6 +206,10 @@ public class PlayerController2D : MonoBehaviour
         {
             spriteRenderer = gameObject.AddComponent<SpriteRenderer>();
         }
+        
+        // PERBAIKAN SPRITE TRANSPARAN - Pastikan sprite renderer tidak transparan dari awal
+        spriteRenderer.color = Color.white;
+        Debug.Log($"🎨 SpriteRenderer initialized dengan warna: {spriteRenderer.color}");
         
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null)
@@ -243,12 +260,24 @@ public class PlayerController2D : MonoBehaviour
             climbB = LoadSpriteFromResources($"character_{colorName}_climb_b")
         };
         
-        Debug.Log($"Loaded character sprites for: {characterColor}");
+        Debug.Log($"🎭 Loaded character sprites for: {characterColor}");
+        
+        // Debug info untuk sprite yang berhasil/gagal dimuat
+        if (currentCharacterSprites.idle != null)
+            Debug.Log($"✅ Idle sprite loaded: {currentCharacterSprites.idle.name}");
+        else
+            Debug.LogWarning($"❌ Idle sprite gagal dimuat untuk {colorName}");
     }
 
     Sprite LoadSpriteFromResources(string spriteName)
     {
+        // Coba beberapa path yang mungkin
         Sprite sprite = Resources.Load<Sprite>($"character/{spriteName}");
+        
+        if (sprite == null)
+        {
+            sprite = Resources.Load<Sprite>($"Characters/{spriteName}");
+        }
         
         if (sprite == null)
         {
@@ -257,7 +286,18 @@ public class PlayerController2D : MonoBehaviour
         
         if (sprite == null)
         {
-            Debug.LogWarning($"Could not load sprite: {spriteName}. Make sure it's in Resources/character/ folder.");
+            // Coba dengan format nama yang berbeda
+            string altName = spriteName.Replace("character_", "p1_").Replace("_", "_");
+            sprite = Resources.Load<Sprite>($"Characters/{altName}");
+        }
+        
+        if (sprite == null)
+        {
+            Debug.LogWarning($"⚠️ Could not load sprite: {spriteName}. Cek apakah sprite ada di Resources folder!");
+        }
+        else
+        {
+            Debug.Log($"✅ Successfully loaded sprite: {spriteName}");
         }
         
         return sprite;
@@ -291,7 +331,7 @@ public class PlayerController2D : MonoBehaviour
         Vector2 colliderOffset = new Vector2(0f, -spriteBounds.size.y * 0.05f);
         capsuleCollider.offset = colliderOffset;
         
-        Debug.Log($"Updated collider for {sprite.name}: Size={colliderSize}, Offset={colliderOffset}");
+        Debug.Log($"🔧 Updated collider for {sprite.name}: Size={colliderSize}, Offset={colliderOffset}");
     }
 
     void Update()
@@ -327,7 +367,7 @@ public class PlayerController2D : MonoBehaviour
         }
     }
     
-    // NEW: Collision detection for dangerous objects
+    // PERBAIKAN TAG - Collision detection untuk objek berbahaya dengan penanganan tag yang aman
     void OnTriggerEnter2D(Collider2D other)
     {
         if (isDead || deathTriggered) return;
@@ -350,14 +390,30 @@ public class PlayerController2D : MonoBehaviour
         }
     }
     
-    // NEW: Check if an object is dangerous
+    // PERBAIKAN TAG - Fungsi yang aman untuk mengecek objek berbahaya
     bool IsDangerousObject(GameObject obj)
     {
         foreach (string dangerousTag in dangerousTags)
         {
-            if (obj.CompareTag(dangerousTag))
+            // PERBAIKAN: Gunakan try-catch untuk menghindari error "Tag is not defined"
+            try
             {
-                return true;
+                if (obj.CompareTag(dangerousTag))
+                {
+                    return true;
+                }
+            }
+            catch (UnityException e)
+            {
+                Debug.LogWarning($"⚠️ Tag '{dangerousTag}' is not defined in Tag Manager! Error: {e.Message}");
+                Debug.LogWarning($"💡 Please add '{dangerousTag}' to Tag Manager (Window > Tags and Layers > Tags)");
+                
+                // Alternatif: cek berdasarkan nama object jika tag tidak ada
+                if (obj.name.ToLower().Contains(dangerousTag.ToLower()))
+                {
+                    Debug.Log($"🔍 Found dangerous object by name: {obj.name} contains '{dangerousTag}'");
+                    return true;
+                }
             }
         }
         return false;
@@ -690,6 +746,14 @@ public class PlayerController2D : MonoBehaviour
         {
             currentAnimationState = newAnimationState;
             spriteRenderer.sprite = newSprite;
+            // PERBAIKAN SPRITE TRANSPARAN - Pastikan warna tetap tidak transparan
+            if (spriteRenderer.color.a < 1f)
+            {
+                Color fixedColor = spriteRenderer.color;
+                fixedColor.a = 1f;
+                spriteRenderer.color = fixedColor;
+                Debug.Log($"🔧 Fixed transparent sprite! Color set to: {spriteRenderer.color}");
+            }
             UpdateColliderToFitSprite(newSprite);
         }
     }
@@ -874,6 +938,7 @@ public class PlayerController2D : MonoBehaviour
         if (spriteRenderer != null && currentCharacterSprites.idle != null)
         {
             spriteRenderer.sprite = currentCharacterSprites.idle;
+            spriteRenderer.color = Color.white; // PASTIKAN TIDAK TRANSPARAN
             UpdateColliderToFitSprite(currentCharacterSprites.idle);
         }
         
@@ -884,7 +949,8 @@ public class PlayerController2D : MonoBehaviour
     {
         if (spriteRenderer != null)
         {
-            spriteRenderer.color = originalColor;
+            spriteRenderer.color = Color.white; // PASTIKAN TIDAK TRANSPARAN
+            originalColor = spriteRenderer.color;
         }
     }
     
@@ -908,6 +974,7 @@ public class PlayerController2D : MonoBehaviour
             if (spriteRenderer != null && currentCharacterSprites.idle != null)
             {
                 spriteRenderer.sprite = currentCharacterSprites.idle;
+                spriteRenderer.color = Color.white; // PASTIKAN TIDAK TRANSPARAN
                 UpdateColliderToFitSprite(currentCharacterSprites.idle);
             }
         }

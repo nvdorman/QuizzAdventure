@@ -37,7 +37,7 @@ public class GameOverManager : MonoBehaviour
         // Cleanup any leftover persistent audio objects
         CleanupAllPersistentAudio();
         
-        // Force reset semua health systems di scene saat start
+        // Force reset semua systems di scene saat start
         ForceResetAllSystems();
         
         // Setup audio source
@@ -109,58 +109,33 @@ public class GameOverManager : MonoBehaviour
             pc.ResetSpriteColor();
         }
         
-        // Reset PlayerHealth components if they exist
-        PlayerHealth[] playerHealths = FindObjectsOfType<PlayerHealth>();
-        foreach (PlayerHealth ph in playerHealths)
+        // Reset EnemyDamage components
+        EnemyDamage[] enemyDamages = FindObjectsOfType<EnemyDamage>();
+        foreach (EnemyDamage ed in enemyDamages)
         {
-            Debug.Log($"🔧🔧 Force resetting PlayerHealth: {ph.name}");
-            if (ph.GetComponent<PlayerHealth>().GetType().GetMethod("ResetHealth") != null)
+            Debug.Log($"🔧🔧 Force resetting EnemyDamage: {ed.name}");
+            // Reset trigger flag menggunakan reflection
+            var field = ed.GetType().GetField("hasTriggered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (field != null)
             {
-                ph.ResetHealth();
+                field.SetValue(ed, false);
             }
         }
         
-        // Reset HealthSystem components if they exist
-        HealthSystem[] healthSystems = FindObjectsOfType<HealthSystem>();
-        foreach (HealthSystem hs in healthSystems)
-        {
-            Debug.Log($"🔧🔧 Force resetting HealthSystem: {hs.name}");
-            if (hs.GetComponent<HealthSystem>().GetType().GetMethod("ResetHealth") != null)
-            {
-                hs.ResetHealth();
-            }
-        }
-        
-        // Reset GameOverTrigger components if they exist
+        // Reset GameOverTrigger components
         GameOverTrigger[] gameOverTriggers = FindObjectsOfType<GameOverTrigger>();
         foreach (GameOverTrigger got in gameOverTriggers)
         {
-            if (got.GetComponent<GameOverTrigger>().GetType().GetMethod("ResetGameOverState") != null)
+            Debug.Log($"🔧🔧 Force resetting GameOverTrigger: {got.name}");
+            // Reset trigger flag menggunakan reflection
+            var field = got.GetType().GetField("gameOverTriggered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (field != null)
             {
-                got.ResetGameOverState();
-                Debug.Log($"🔧🔧 Reset GameOverTrigger: {got.name}");
+                field.SetValue(got, false);
             }
         }
         
-        // Force reset static variables if HealthSystem exists
-        try
-        {
-            if (System.Type.GetType("HealthSystem") != null)
-            {
-                var resetMethod = System.Type.GetType("HealthSystem").GetMethod("ResetGameOverState", 
-                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
-                if (resetMethod != null)
-                {
-                    resetMethod.Invoke(null, null);
-                }
-            }
-        }
-        catch (System.Exception e)
-        {
-            Debug.Log($"Note: HealthSystem static reset not available: {e.Message}");
-        }
-        
-        Debug.Log("🔧🔧 GameOverManager - All systems force reset complete!");
+        Debug.Log("🔧🔧 All systems reset complete!");
     }
     
     void SetupAudioSource()
@@ -170,237 +145,154 @@ public class GameOverManager : MonoBehaviour
         {
             audioSource = gameObject.AddComponent<AudioSource>();
         }
-        audioSource.volume = gameOverSoundVolume;
+        
+        audioSource.playOnAwake = false;
+        audioSource.loop = false;
+        
+        Debug.Log("🔊 AudioSource setup complete");
     }
     
-    // Method yang dipanggil dari PlayerController2D atau sistem lain
+    void CleanupAllPersistentAudio()
+    {
+        // Cleanup any persistent audio objects
+        GameObject[] audioObjects = GameObject.FindGameObjectsWithTag("Audio");
+        foreach (GameObject obj in audioObjects)
+        {
+            if (obj.name.Contains("Persistent"))
+            {
+                Destroy(obj);
+                Debug.Log($"🧹 Cleaned up persistent audio object: {obj.name}");
+            }
+        }
+    }
+    
+    // PUBLIC METHOD - Dipanggil dari script lain untuk trigger game over
     public void ActivateGameOver()
     {
-        Debug.Log($"💀💀💀 GameOverManager ActivateGameOver called!");
-        Debug.Log($"Current gameOverActivated state: {gameOverActivated}");
-        Debug.Log($"Current Time.timeScale: {Time.timeScale}");
-
-        // Allow multiple activations but with proper handling
+        if (gameOverActivated) 
+        {
+            Debug.Log("⚠️ Game Over sudah diaktivasi sebelumnya, skip");
+            return;
+        }
+        
         gameOverActivated = true;
-
+        
+        Debug.Log("💀💀💀 GAME OVER ACTIVATED!");
+        
+        StartCoroutine(GameOverSequence());
+    }
+    
+    // Alias untuk kompatibilitas
+    public void TriggerGameOver()
+    {
+        ActivateGameOver();
+    }
+    
+    IEnumerator GameOverSequence()
+    {
+        // Play game over sound
+        if (audioSource != null && gameOverSound != null)
+        {
+            audioSource.volume = gameOverSoundVolume;
+            audioSource.PlayOneShot(gameOverSound);
+            Debug.Log("🔊 Playing game over sound");
+        }
+        
+        // Wait sedikit untuk effect
+        yield return new WaitForSeconds(0.5f);
+        
         // Show game over panel
         if (gameOverPanel != null)
         {
             gameOverPanel.SetActive(true);
-            Debug.Log("✅ Game Over panel activated!");
-            
-            // Ensure buttons are interactable
-            if (restartButton != null)
-            {
-                restartButton.interactable = true;
-                Debug.Log($"🔧 Restart button interactable: {restartButton.interactable}");
-            }
-            if (exitButton != null)
-            {
-                exitButton.interactable = true;
-            }
+            Debug.Log("🎮 Game Over panel activated");
+        }
+        else if (gameOverCanvas != null)
+        {
+            gameOverCanvas.gameObject.SetActive(true);
+            Debug.Log("🎮 Game Over canvas activated");
         }
         else
         {
-            Debug.LogError("❌ gameOverPanel is NULL! Cannot show game over!");
+            Debug.LogError("❌ CRITICAL: No game over UI found!");
         }
-
-        // Always play game over sound with fresh audio source
-        PlayGameOverSound();
-
-        // Delay pause to allow UI to setup properly
-        StartCoroutine(PauseAfterUI());
-
-        Debug.Log("💀 Game Over Activated successfully!");
-    }
-    
-    // Pause setelah UI siap
-    IEnumerator PauseAfterUI()
-    {
-        yield return new WaitForEndOfFrame(); // Wait for UI to be ready
-        Time.timeScale = 0f;
-        Debug.Log("⏸️ Game paused after UI setup");
-    }
-    
-    // Simplified game over sound - no persistent objects
-    void PlayGameOverSound()
-    {
-        if (gameOverSound != null && audioSource != null)
+        
+        // Pause game
+        if (pauseGameOnGameOver)
         {
-            // Stop any currently playing audio
-            audioSource.Stop();
-            
-            // Play the game over sound
-            audioSource.volume = gameOverSoundVolume;
-            audioSource.PlayOneShot(gameOverSound);
-            Debug.Log("🎵 Game over sound played with local audio source");
+            Time.timeScale = 0f;
+            Debug.Log("⏸️ Game paused");
         }
-        else
-        {
-            Debug.LogWarning("⚠️ GameOverSound or AudioSource is missing!");
-        }
+        
+        // Enable buttons
+        if (restartButton != null) restartButton.interactable = true;
+        if (exitButton != null) exitButton.interactable = true;
+        
+        Debug.Log("🎮 Game Over sequence complete");
     }
     
-    // Alternative method name for compatibility
-    public void GameOver()
-    {
-        ActivateGameOver();
-    }
+    [Header("Game Over Behavior")]
+    public bool pauseGameOnGameOver = true;
     
-    // RestartGame yang lebih simple dan reliable
     public void RestartGame()
     {
-        Debug.Log("🔄🔄🔄 GameOverManager RestartGame() EXECUTED!");
-        Debug.Log($"Current scene: {SceneManager.GetActiveScene().name}");
+        Debug.Log("🔄 Restarting game...");
         
-        // Play button sound
         PlayButtonSound();
         
-        // IMMEDIATE: Reset time scale
+        // Reset time scale
         Time.timeScale = 1f;
-        Debug.Log("⏰ Time scale reset to 1");
         
-        // Cleanup everything before reload
-        CleanupAllPersistentAudio();
+        // Determine scene to load
+        string sceneToLoad = useCurrentScene ? SceneManager.GetActiveScene().name : 
+                            (string.IsNullOrEmpty(specificSceneName) ? SceneManager.GetActiveScene().name : specificSceneName);
         
-        // Reset flags
-        gameOverActivated = false;
+        Debug.Log($"🔄 Loading scene: {sceneToLoad}");
         
-        // Hide UI immediately
-        if (gameOverPanel != null)
-        {
-            gameOverPanel.SetActive(false);
-            Debug.Log("🎮 Game Over panel hidden");
-        }
-        
-        if (gameOverCanvas != null)
-        {
-            gameOverCanvas.gameObject.SetActive(false);
-            Debug.Log("🎮 Game Over canvas hidden");
-        }
-        
-        // IMMEDIATE SCENE RELOAD
-        string currentSceneName = SceneManager.GetActiveScene().name;
-        Debug.Log($"🔄 IMMEDIATELY reloading scene: {currentSceneName}");
-        
-        SceneManager.LoadScene(currentSceneName);
+        // Load scene
+        SceneManager.LoadScene(sceneToLoad);
     }
     
     public void ExitToMainMenu()
     {
-        Debug.Log("🚪 ExitToMainMenu called!");
+        Debug.Log("🚪 Exiting to main menu...");
         
         PlayButtonSound();
         
+        // Reset time scale
         Time.timeScale = 1f;
-        gameOverActivated = false;
         
-        CleanupAllPersistentAudio();
-        
+        // Load main menu
         if (!string.IsNullOrEmpty(mainMenuSceneName))
         {
-            Debug.Log($"🏠 Loading main menu: {mainMenuSceneName}");
+            Debug.Log($"🚪 Loading main menu: {mainMenuSceneName}");
             SceneManager.LoadScene(mainMenuSceneName);
         }
         else
         {
-            Debug.Log("No main menu scene specified. Quitting application...");
+            Debug.LogWarning("⚠️ Main menu scene name not set, quitting application");
             Application.Quit();
-            
-            #if UNITY_EDITOR
-            UnityEditor.EditorApplication.isPlaying = false;
-            #endif
         }
     }
     
-    private void PlayButtonSound()
+    void PlayButtonSound()
     {
         if (audioSource != null && buttonClickSound != null)
         {
-            audioSource.PlayOneShot(buttonClickSound, buttonSoundVolume);
-            Debug.Log("🎵 Button sound played");
+            audioSource.volume = buttonSoundVolume;
+            audioSource.PlayOneShot(buttonClickSound);
         }
     }
     
-    public void ResetGameOverState()
-    {
-        Debug.Log("🔄 ResetGameOverState called");
-        gameOverActivated = false;
-        
-        if (gameOverPanel != null)
-        {
-            gameOverPanel.SetActive(false);
-        }
-        
-        Time.timeScale = 1f;
-        
-        Debug.Log("🔄 GameOverManager state reset complete");
-    }
-    
-    // Cleanup semua persistent audio objects
-    void CleanupAllPersistentAudio()
-    {
-        // Find and destroy any persistent game over audio objects
-        GameObject[] persistentObjects = GameObject.FindGameObjectsWithTag("Untagged");
-        foreach (GameObject obj in persistentObjects)
-        {
-            if (obj.name.Contains("PersistentGameOverAudio") || 
-                obj.name.Contains("Persistent") && obj.GetComponent<AudioSource>() != null)
-            {
-                Debug.Log($"🧹 Destroying persistent audio object: {obj.name}");
-                Destroy(obj);
-            }
-        }
-        
-        // Also try to find by component
-        AudioSource[] allAudioSources = FindObjectsOfType<AudioSource>();
-        foreach (AudioSource source in allAudioSources)
-        {
-            if (source.transform.parent == null && 
-                source.gameObject.name.Contains("Persistent"))
-            {
-                Debug.Log($"🧹 Destroying persistent audio: {source.gameObject.name}");
-                Destroy(source.gameObject);
-            }
-        }
-        
-        Debug.Log("🧹 All persistent audio cleanup complete");
-    }
-    
-    void OnApplicationQuit()
-    {
-        CleanupAllPersistentAudio();
-    }
-    
-    void OnDestroy()
-    {
-        Time.timeScale = 1f;
-        CleanupAllPersistentAudio();
-    }
-    
-    public bool IsGameOverActivated()
+    // Method untuk debugging
+    public bool IsGameOverActive()
     {
         return gameOverActivated;
     }
     
-    // DEBUGGING: Method untuk test aktivasi game over
-    [ContextMenu("Test Game Over")]
-    public void TestGameOver()
+    public void ResetGameOverState()
     {
-        Debug.Log("🧪 Manual game over test triggered!");
-        ActivateGameOver();
-    }
-    
-    // DEBUGGING: Method untuk check status
-    [ContextMenu("Debug Status")]
-    public void DebugStatus()
-    {
-        Debug.Log("=== GAME OVER MANAGER DEBUG ===");
-        Debug.Log($"gameOverActivated: {gameOverActivated}");
-        Debug.Log($"Time.timeScale: {Time.timeScale}");
-        Debug.Log($"gameOverPanel active: {(gameOverPanel != null ? gameOverPanel.activeInHierarchy : "NULL")}");
-        Debug.Log($"AudioSource: {(audioSource != null ? "Present" : "NULL")}");
-        Debug.Log($"GameOverSound: {(gameOverSound != null ? "Present" : "NULL")}");
-        Debug.Log("===============================");
+        gameOverActivated = false;
+        Debug.Log("🔄 Game Over state reset");
     }
 }
